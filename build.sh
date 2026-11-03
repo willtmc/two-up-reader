@@ -22,6 +22,8 @@ cp Resources/* "$APP/Contents/Resources/"
 codesign --force --sign - "$APP"
 
 DEST="$HOME/Applications/TwoUp.app"
-if [[ -d "$DEST" ]]; then trash "$DEST"; fi
+if [[ -d "$DEST" ]]; then
+  if command -v trash >/dev/null; then trash "$DEST"; else rm -rf "$DEST"; fi
+fi
 cp -R "$APP" "$DEST"
 echo "Installed $DEST"
