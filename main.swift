@@ -27,7 +27,7 @@ func normalizeURL(_ raw: String) -> URL? {
 }
 
 func jsonLiteral(_ object: Any) -> String {
-    guard let data = try? JSONSerialization.data(withJSONObject: object),
+    guard let data = try? JSONSerialization.data(withJSONObject: object, options: .fragmentsAllowed),
           let text = String(data: data, encoding: .utf8) else { return "{}" }
     return text.replacingOccurrences(of: "</", with: "<\\/")
 }
@@ -39,6 +39,79 @@ func resourceText(_ name: String, _ ext: String) -> String {
         return ""
     }
     return text
+}
+
+// MARK: Readwise Reader
+
+enum Keychain {
+    static let base: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: "com.mclemore.twoup",
+        kSecAttrAccount as String: "readwise",
+    ]
+    static func get() -> String? {
+        var query = base
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+    static func set(_ value: String) {
+        SecItemDelete(base as CFDictionary)
+        var query = base
+        query[kSecValueData as String] = Data(value.utf8)
+        SecItemAdd(query as CFDictionary, nil)
+    }
+    static func delete() { SecItemDelete(base as CFDictionary) }
+}
+
+struct ReadwiseError: LocalizedError { let errorDescription: String? }
+
+func readwiseRequest(_ url: URL, method: String = "GET", body: [String: Any]? = nil, token: String,
+                     completion: @escaping (Result<[String: Any], Error>) -> Void) {
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.setValue("Token \(token)", forHTTPHeaderField: "Authorization")
+    if let body {
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
+    URLSession.shared.dataTask(with: request) { data, response, error in
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        let result: Result<[String: Any], Error>
+        if let error {
+            result = .failure(error)
+        } else if status == 401 || status == 403 {
+            result = .failure(ReadwiseError(errorDescription: "Readwise rejected the token. Reconnect with a fresh one."))
+        } else if status == 429 {
+            let wait = http?.value(forHTTPHeaderField: "Retry-After") ?? "a few"
+            result = .failure(ReadwiseError(errorDescription: "Readwise rate limit hit. Try again in \(wait) seconds."))
+        } else if !(200..<300).contains(status) {
+            result = .failure(ReadwiseError(errorDescription: "Readwise returned HTTP \(status)."))
+        } else {
+            let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+            result = .success(object ?? [:])
+        }
+        DispatchQueue.main.async { completion(result) }
+    }.resume()
+}
+
+// Keeps only readable top-level documents (no highlights, notes, PDFs, videos).
+func slimDoc(_ doc: [String: Any]) -> [String: Any]? {
+    guard let id = doc["id"] as? String, doc["parent_id"] == nil || doc["parent_id"] is NSNull,
+          ["article", "email", "rss"].contains(doc["category"] as? String ?? "") else { return nil }
+    var out: [String: Any] = ["id": id]
+    for key in ["title", "author", "site_name", "source_url", "word_count", "reading_progress"] {
+        if let value = doc[key], !(value is NSNull) { out[key] = value }
+    }
+    return out
+}
+
+struct QueueCache {
+    var items: [[String: Any]]
+    var fetchedAt: Date
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler {
@@ -54,6 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var pending: (token: Int, url: URL, html: String?)?
     var token = 0
     var extracting = Set<Int>()
+    var currentDocID: String?
+    var queueLocation = "later"
+    var queueCache: [String: QueueCache] = [:]
 
     // MARK: Launch
 
@@ -185,6 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let article { data["article"] = article }
         if let url { data["url"] = url.absoluteString }
         if let message { data["message"] = message }
+        if mode == "article", let currentDocID { data["docId"] = currentDocID }
         let html = template.replacingOccurrences(of: "/*__TWOUP_DATA__*/", with: "window.TWOUP = \(jsonLiteral(data));")
         reader.loadHTMLString(html, baseURL: mode == "article" ? url : nil)
         window.makeFirstResponder(reader)
@@ -197,11 +274,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     // MARK: Loading and extraction
 
-    func open(_ url: URL, html: String?) {
+    func open(_ url: URL, html: String?, docID: String? = nil) {
         token += 1
         let t = token
         pending = (t, url, html)
         currentURL = url
+        currentDocID = docID
         render("loading", url: url)
         if html != nil {
             loader.loadHTMLString("<!doctype html><html><head></head><body></body></html>", baseURL: url)
@@ -249,6 +327,123 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func stopLoader() {
         loader.stopLoading()
         loader.loadHTMLString("", baseURL: nil)
+    }
+
+    // MARK: Readwise Reader queue
+
+    func pushQueue(_ state: [String: Any]) {
+        reader.evaluateJavaScript("window.updateQueue && window.updateQueue(\(jsonLiteral(state)))")
+    }
+
+    func flash(_ message: String) {
+        reader.evaluateJavaScript("window.flash && window.flash(\(jsonLiteral(message)))")
+    }
+
+    func serveQueue(force: Bool) {
+        let location = queueLocation
+        guard let key = Keychain.get() else {
+            pushQueue(["state": "needsToken"])
+            return
+        }
+        if let cached = queueCache[location] {
+            pushQueue(["state": "ready", "location": location, "items": cached.items])
+            if !force && Date().timeIntervalSince(cached.fetchedAt) < 120 { return }
+        } else {
+            pushQueue(["state": "loading", "location": location, "items": []])
+        }
+        fetchQueue(location, key: key, cursor: nil, items: [], pagesLeft: 3)
+    }
+
+    func fetchQueue(_ location: String, key: String, cursor: String?, items: [[String: Any]], pagesLeft: Int) {
+        var components = URLComponents(string: "https://readwise.io/api/v3/list/")!
+        components.queryItems = [URLQueryItem(name: "location", value: location)]
+            + (cursor.map { [URLQueryItem(name: "pageCursor", value: $0)] } ?? [])
+        readwiseRequest(components.url!, token: key) { result in
+            switch result {
+            case .failure(let error):
+                self.pushQueue(["state": "error", "location": location, "message": error.localizedDescription,
+                                "items": self.queueCache[location]?.items ?? []])
+            case .success(let json):
+                let all = items + (json["results"] as? [[String: Any]] ?? []).compactMap(slimDoc)
+                if let next = json["nextPageCursor"] as? String, pagesLeft > 1 {
+                    self.fetchQueue(location, key: key, cursor: next, items: all, pagesLeft: pagesLeft - 1)
+                    return
+                }
+                self.queueCache[location] = QueueCache(items: all, fetchedAt: Date())
+                if self.queueLocation == location {
+                    self.pushQueue(["state": "ready", "location": location, "items": all])
+                }
+            }
+        }
+    }
+
+    func openDoc(_ id: String) {
+        guard let key = Keychain.get() else { return }
+        token += 1
+        let t = token
+        pending = nil
+        let item = queueCache.values.flatMap(\.items).first { $0["id"] as? String == id }
+        let listedURL = (item?["source_url"] as? String).flatMap(normalizeURL)
+        render("loading", url: listedURL)
+        var components = URLComponents(string: "https://readwise.io/api/v3/list/")!
+        components.queryItems = [URLQueryItem(name: "id", value: id), URLQueryItem(name: "withHtmlContent", value: "true")]
+        readwiseRequest(components.url!, token: key) { result in
+            guard self.token == t else { return }
+            switch result {
+            case .failure(let error):
+                self.showStart(message: error.localizedDescription)
+            case .success(let json):
+                guard let doc = (json["results"] as? [[String: Any]])?.first else {
+                    self.showStart(message: "That document is no longer in Reader.")
+                    return
+                }
+                let url = (doc["source_url"] as? String).flatMap(normalizeURL) ?? listedURL
+                let html = doc["html_content"] as? String ?? ""
+                if html.isEmpty {
+                    if let url { self.open(url, html: nil, docID: id) } else { self.showStart(message: "Reader has no text for that document.") }
+                    return
+                }
+                func text(_ key: String) -> String { doc[key] as? String ?? "" }
+                self.currentDocID = id
+                self.currentURL = url
+                self.window.title = text("title").isEmpty ? "TwoUp" : text("title")
+                self.render("article",
+                            article: ["title": text("title"), "byline": text("author"), "site": text("site_name"), "content": html],
+                            url: url ?? URL(string: "https://read.readwise.io")!)
+            }
+        }
+    }
+
+    func archiveCurrent() {
+        guard let id = currentDocID, let key = Keychain.get() else { return }
+        flash("Archiving…")
+        readwiseRequest(URL(string: "https://readwise.io/api/v3/update/\(id)/")!, method: "PATCH",
+                        body: ["location": "archive"], token: key) { result in
+            switch result {
+            case .failure(let error):
+                self.flash(error.localizedDescription)
+            case .success:
+                for location in self.queueCache.keys {
+                    self.queueCache[location]?.items.removeAll { $0["id"] as? String == id }
+                }
+                self.currentDocID = nil
+                self.showStart()
+            }
+        }
+    }
+
+    func connectReadwise(_ raw: String) {
+        let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        readwiseRequest(URL(string: "https://readwise.io/api/v2/auth/")!, token: key) { result in
+            switch result {
+            case .success:
+                Keychain.set(key)
+                self.queueCache = [:]
+                self.serveQueue(force: true)
+            case .failure(let error):
+                self.pushQueue(["state": "needsToken", "message": error.localizedDescription])
+            }
+        }
     }
 
     // MARK: Browser tab
@@ -330,6 +525,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case "original": originalAction()
         case "prefs":
             if let p = body["prefs"] as? [String: Any] { UserDefaults.standard.set(p, forKey: "prefs") }
+        case "queue":
+            if let location = body["location"] as? String { queueLocation = location }
+            serveQueue(force: body["force"] as? Bool ?? false)
+        case "openDoc":
+            if let id = body["id"] as? String { openDoc(id) }
+        case "archive": archiveCurrent()
+        case "token":
+            if let value = body["value"] as? String { connectReadwise(value) }
+        case "disconnect":
+            Keychain.delete()
+            queueCache = [:]
+            pushQueue(["state": "needsToken"])
         case "exitFullscreen":
             if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
         default: break

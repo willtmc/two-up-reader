@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "/Users/willmclemore/wills_code/two-up-reader/Resources/reader.html"
+        ],
+        "createdAt": "2026-11-03T04:20:57.023Z",
+        "reason": "Claude: blockquote left rule in a book-style reader, muted --rule color, standard typographic convention, not a card accent"
+      }
+    ]
+  }
+}
