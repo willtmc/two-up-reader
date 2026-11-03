@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+:root {
+  --bg: #fbf9f4; --fg: #1f1d1a; --muted: #8a8478; --rule: #e4dfd4; --link: #8a4512;
+  --fs: 20px; --font: "Iowan Old Style", "Palatino", "Georgia", serif; --bookh: 80vh;
+}
+:root[data-theme="sepia"] { --bg: #f3ead6; --fg: #3a2e1f; --muted: #8f7f63; --rule: #dccfb2; --link: #8a4b14; }
+:root[data-theme="dark"]  { --bg: #161616; --fg: #d9d4ca; --muted: #85807a; --rule: #2e2e2e; --link: #e0a96d; }
+:root[data-font="sans"] { --font: -apple-system, "Helvetica Neue", sans-serif; }
+
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); }
+body { font-family: var(--font); font-size: var(--fs); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+body.idle, body.idle * { cursor: none !important; }
+
+/* Two-up pages: #book is a 2-column box exactly one spread wide; extra
+   columns overflow to the right and #clip shows one spread at a time. */
+#clip { position: absolute; overflow: hidden; }
+#book {
+  height: 100%; column-count: 2; column-fill: auto; column-rule: 1px solid var(--rule);
+  text-align: justify; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word;
+}
+#book img, #book video, #book svg, #book picture {
+  display: block; max-width: 100%; max-height: calc(var(--bookh) - 3em);
+  width: auto; height: auto; margin: 0.6em auto;
+}
+#book figure { margin: 0.9em 0; break-inside: avoid; }
+#book figcaption, #book .caption { font-size: 0.78em; line-height: 1.4; color: var(--muted); text-align: left; }
+#book h1, #book h2, #book h3, #book h4, #book h5 {
+  line-height: 1.25; text-align: left; hyphens: manual; break-after: avoid; margin: 1.2em 0 0.5em;
+}
+#book h1.title { font-size: 1.9em; line-height: 1.15; margin: 0 0 0.35em; }
+#book .meta { color: var(--muted); font-size: 0.85em; margin-bottom: 1.5em; text-align: left; }
+#book p { margin: 0 0 0.9em; }
+#book a { color: var(--link); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent); }
+#book blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid var(--rule); font-style: italic; }
+#book pre, #book code { font-family: ui-monospace, Menlo, monospace; font-size: 0.8em; }
+#book pre { white-space: pre-wrap; text-align: left; background: color-mix(in srgb, var(--fg) 5%, transparent); padding: 0.6em; }
+#book table { font-size: 0.8em; border-collapse: collapse; max-width: 100%; }
+#book td, #book th { border: 1px solid var(--rule); padding: 0.2em 0.4em; }
+#book hr { border: 0; border-top: 1px solid var(--rule); margin: 1.5em 0; }
+#book .end { text-align: center; color: var(--muted); margin-top: 2em; }
+
+#status {
+  position: fixed; left: 0; right: 0; bottom: 2.6vh; text-align: center;
+  font: 12px -apple-system, sans-serif; letter-spacing: 0.04em; color: var(--muted);
+}
+#progress { position: fixed; left: 0; bottom: 0; height: 2px; background: var(--muted); opacity: 0.35; }
+
+#panel {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 18px; padding: 0 16px; font-family: -apple-system, sans-serif; font-size: 15px;
+}
+#panel .brand { font-family: "Iowan Old Style", Georgia, serif; font-weight: normal; font-size: 44px; margin: 0; }
+#panel form { display: flex; gap: 8px; width: min(640px, 100%); }
+#panel input {
+  flex: 1; font: inherit; font-size: 17px; padding: 10px 14px; border-radius: 8px;
+  border: 1px solid var(--rule); background: color-mix(in srgb, var(--bg) 70%, white); color: var(--fg); outline: none;
+}
+#panel input:focus { border-color: var(--muted); }
+#panel button {
+  font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid var(--fg);
+  background: var(--fg); color: var(--bg); cursor: pointer;
+}
+#panel button.secondary { background: transparent; color: var(--fg); border-color: var(--rule); }
+#panel .row { display: flex; gap: 8px; }
+#panel .msg { color: #b0412e; max-width: 640px; text-align: center; margin: 0; }
+#panel .muted { color: var(--muted); margin: 0; text-align: center; }
+#panel .keys { font-size: 12.5px; max-width: 640px; line-height: 1.7; }
+kbd { font: 11px -apple-system, sans-serif; opacity: 0.7; margin-left: 4px; }
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--rule); border-top-color: var(--muted);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#help {
+  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg) 85%, transparent); font: 14px/2 -apple-system, sans-serif;
+}
+#help table td:first-child { text-align: right; padding-right: 18px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="panel" hidden></div>
+<div id="clip" hidden><div id="book"></div></div>
+<div id="status"></div>
+<div id="progress"></div>
+<div id="help" hidden>
+  <table>
+    <tr><td>→ ↓ space · click right</td><td>Next spread</td></tr>
+    <tr><td>← ↑ ⇧space · click left</td><td>Previous spread</td></tr>
+    <tr><td>Home / End</td><td>First / last spread</td></tr>
+    <tr><td>+ / −</td><td>Text size</td></tr>
+    <tr><td>T</td><td>Theme (paper, sepia, dark)</td></tr>
+    <tr><td>F</td><td>Serif / sans</td></tr>
+    <tr><td>O</td><td>Open original in browser</td></tr>
+    <tr><td>⌘L / ⌘B / ⌘V</td><td>New URL / read browser tab / paste a URL</td></tr>
+    <tr><td>Esc</td><td>Leave full screen</td></tr>
+  </table>
+</div>
+<script>
+/*__TWOUP_DATA__*/
+const D = window.TWOUP || { mode: "start", prefs: {} };
+const post = (type, extra = {}) => window.webkit?.messageHandlers?.twoup?.postMessage({ type, ...extra });
+const prefs = Object.assign({ fontSize: 20, theme: "paper", font: "serif" }, D.prefs || {});
+const root = document.documentElement;
+let page = 0, pages = 1, stride = 0, colStride = 0;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u || ""; } };
+
+function applyPrefs() {
+  root.dataset.theme = prefs.theme;
+  root.dataset.font = prefs.font;
+  root.style.setProperty("--fs", prefs.fontSize + "px");
+}
+function savePrefs() { applyPrefs(); post("prefs", { prefs }); }
+applyPrefs();
+
+// Paste a URL anywhere outside the text field to open it.
+document.addEventListener("paste", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  const text = (e.clipboardData.getData("text") || "").trim();
+  if (/^https?:\/\/\S+$/i.test(text)) { e.preventDefault(); post("open", { url: text }); }
+});
+
+if (D.mode === "article") initArticle(); else initPanel();
+
+function initPanel() {
+  const panel = $("panel");
+  panel.hidden = false;
+  if (D.mode === "loading") {
+    panel.innerHTML = `<div class="spinner"></div><p class="muted">Loading ${esc(host(D.url))}…</p>`;
+    return;
+  }
+  const isError = D.mode === "error";
+  panel.innerHTML = `
+    <h1 class="brand">TwoUp</h1>
+    ${D.message ? `<p class="msg">${esc(D.message)}</p>` : ""}
+    <form id="f"><input id="u" type="text" placeholder="Paste an article URL" spellcheck="false" autocomplete="off"
+      value="${isError ? esc(D.url || "") : ""}"><button>Read</button></form>
+    <div class="row">
+      <button id="grab" class="secondary">Read front browser tab<kbd>⌘B</kbd></button>
+      ${isError && D.url ? `<button id="orig" class="secondary">Open in browser</button>` : ""}
+    </div>
+    <p class="muted keys">→ or space: next spread · ←: previous · + −: text size · T: theme · F: font · O: original · ?: help · Esc: leave full screen</p>`;
+  $("f").onsubmit = (e) => { e.preventDefault(); const v = $("u").value.trim(); if (v) post("open", { url: v }); };
+  $("grab").onclick = () => post("grab");
+  if ($("orig")) $("orig").onclick = () => post("original");
+  $("u").focus();
+  $("u").select();
+}
+
+function sanitize(html) {
+  const t = document.createElement("template");
+  t.innerHTML = html;
+  t.content.querySelectorAll("script,style,link,meta,iframe,object,embed,form,input,button,select,textarea").forEach((n) => n.remove());
+  t.content.querySelectorAll("*").forEach((el) => {
+    for (const a of [...el.attributes]) {
+      if (/^on/i.test(a.name) || a.name === "style" || (/^(href|src)$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) {
+        el.removeAttribute(a.name);
+      }
+    }
+  });
+  return t.content;
+}
+
+
+function initArticle() {
+  const a = D.article;
+  const clip = $("clip"), book = $("book");
+  clip.hidden = false;
+  document.title = a.title || host(D.url);
+  if (a.lang) root.lang = a.lang;
+
+  const meta = [a.byline, a.site || host(D.url)].filter(Boolean).map(esc).join(" · ");
+  book.innerHTML = `<h1 class="title">${esc(a.title)}</h1>${meta ? `<div class="meta">${meta}</div>` : ""}`;
+  const content = sanitize(a.content);
+  const firstHead = content.querySelector("h1, h2");
+  if (firstHead && firstHead.textContent.trim() === (a.title || "").trim()) firstHead.remove();
+  book.appendChild(content);
+  book.insertAdjacentHTML("beforeend", `<p class="end" id="end">❧</p>`);
+
+  let relayoutTimer;
+  const relayoutSoon = () => { clearTimeout(relayoutTimer); relayoutTimer = setTimeout(layout, 120); };
+  book.querySelectorAll("img").forEach((img) => {
+    img.removeAttribute("loading");
+    if (!img.complete) img.addEventListener("load", relayoutSoon);
+    img.addEventListener("error", () => { (img.closest("figure, picture") || img).remove(); relayoutSoon(); });
+  });
+  book.addEventListener("click", (e) => {
+    const link = e.target.closest("a[href^='#']");
+    if (link) e.preventDefault();
+  });
+  window.addEventListener("resize", layout);
+  document.fonts?.ready.then(layout);
+  window.addEventListener("load", layout);
+  layout();
+  bindArticleInput();
+}
+
+function layout() {
+  const clip = $("clip"), book = $("book");
+  const frac = pages > 1 ? page / (pages - 1) : 0;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const gap = Math.max(40, Math.round(vw * 0.045));
+  const colW = Math.min(Math.floor((vw * 0.9 - gap) / 2), Math.round(prefs.fontSize * 34));
+  const W = colW * 2 + gap;
+  const top = Math.round(vh * 0.07), H = vh - top - Math.round(vh * 0.08);
+  Object.assign(clip.style, { width: W + "px", height: H + "px", top: top + "px", left: Math.floor((vw - W) / 2) + "px" });
+  book.style.width = W + "px";
+  book.style.columnGap = gap + "px";
+  root.style.setProperty("--bookh", H + "px");
+  stride = W + gap;
+  colStride = colW + gap;
+
+  const endLeft = $("end").getBoundingClientRect().left - book.getBoundingClientRect().left;
+  const columns = Math.floor(endLeft / colStride + 0.01) + 1;
+  pages = Math.max(1, Math.ceil(columns / 2));
+  page = Math.round(frac * (pages - 1));
+  show();
+}
+
+function show() {
+  $("book").style.transform = `translateX(${-page * stride}px)`;
+  $("status").textContent = `${page + 1} / ${pages}`;
+  $("progress").style.width = (pages > 1 ? (page / (pages - 1)) * 100 : 100) + "%";
+}
+
+function go(delta) {
+  const next = Math.min(pages - 1, Math.max(0, page + delta));
+  if (next !== page) { page = next; show(); }
+}
+
+function bindArticleInput() {
+  window.addEventListener("keydown", (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const help = $("help");
+    let handled = true;
+    switch (e.key) {
+      case "ArrowRight": case "ArrowDown": case "PageDown": case "j": case "l": go(1); break;
+      case "ArrowLeft": case "ArrowUp": case "PageUp": case "k": case "h": go(-1); break;
+      case " ": go(e.shiftKey ? -1 : 1); break;
+      case "Home": case "g": page = 0; show(); break;
+      case "End": case "G": page = pages - 1; show(); break;
+      case "=": case "+": prefs.fontSize = Math.min(34, prefs.fontSize + 1); savePrefs(); layout(); break;
+      case "-": case "_": prefs.fontSize = Math.max(13, prefs.fontSize - 1); savePrefs(); layout(); break;
+      case "t": case "T": prefs.theme = { paper: "sepia", sepia: "dark", dark: "paper" }[prefs.theme] || "paper"; savePrefs(); break;
+      case "f": case "F": prefs.font = prefs.font === "serif" ? "sans" : "serif"; savePrefs(); layout(); break;
+      case "o": case "O": post("original"); break;
+      case "?": help.hidden = !help.hidden; break;
+      case "Escape": if (!help.hidden) help.hidden = true; else post("exitFullscreen"); break;
+      default: handled = false;
+    }
+    if (handled) e.preventDefault();
+  });
+
+  // Click left half: back. Right half: forward. Links and text selection are left alone.
+  document.addEventListener("click", (e) => {
+    if (e.target.closest("a") || String(window.getSelection())) return;
+    if (!$("help").hidden) { $("help").hidden = true; return; }
+    go(e.clientX < window.innerWidth / 2 ? -1 : 1);
+  });
+
+  // Trackpad/wheel: one page per gesture; the gesture ends when events pause.
+  let acc = 0, locked = false, quietTimer;
+  window.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    clearTimeout(quietTimer);
+    quietTimer = setTimeout(() => { locked = false; acc = 0; }, 180);
+    if (locked) return;
+    acc += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    if (Math.abs(acc) > 40) { go(acc > 0 ? 1 : -1); locked = true; }
+  }, { passive: false });
+
+  let idleTimer;
+  document.addEventListener("mousemove", () => {
+    document.body.classList.remove("idle");
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => document.body.classList.add("idle"), 2000);
+  });
+}
+</script>
+</body>
+</html>
