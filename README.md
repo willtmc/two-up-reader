@@ -24,6 +24,8 @@ cd two-up-reader
 - **Read a URL:** ⌘L and paste it, or ⌘V a URL anywhere in the app. From a terminal: `open -a TwoUp --args https://example.com/article`.
 - **Read your Reader queue:** paste a token from [readwise.io/access_token](https://readwise.io/access_token) on the start screen. Inbox, Later, and Shortlist appear there.
 
+On the last spread of a Reader article, **Mark as read** saves 100% reading progress, moves the article to Archive, and returns to your queue. **Back to queue** returns directly to the list. For a pasted URL or browser tab, use **Choose another article**.
+
 | Key | Action |
 |---|---|
 | → ↓ space, click right half, swipe | Next spread |
@@ -33,7 +35,7 @@ cd two-up-reader
 | T | Theme: paper, sepia, dark |
 | F | Serif or sans |
 | O | Open the original page in your browser |
-| A | Archive in Readwise Reader and go back to the queue |
+| A | Archive in Readwise Reader and return to the queue. On the last spread, also mark as read. |
 | ? | Show keys |
 | Esc | Leave full screen |
 
