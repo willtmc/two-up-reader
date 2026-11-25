@@ -44,10 +44,26 @@ body.idle, body.idle * { cursor: none !important; }
 #book hr { border: 0; border-top: 1px solid var(--rule); margin: 1.5em 0; }
 #book .end { text-align: center; color: var(--muted); margin-top: 2em; }
 
-#status {
-  position: fixed; left: 0; right: 0; bottom: 2.6vh; text-align: center;
-  font: 12px -apple-system, sans-serif; letter-spacing: 0.04em; color: var(--muted);
+#reader-footer {
+  position: fixed; inset: auto 0 0; min-height: max(72px, 8vh); box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  gap: 4px; padding: 4px 12px; font: 13px/1.3 -apple-system, sans-serif;
 }
+#reader-footer .line, #finish { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 12px; }
+#status {
+  font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--fg) 65%, var(--bg));
+}
+#archive-feedback { text-align: center; }
+#archive-feedback:empty { position: absolute; }
+#finish button {
+  min-height: 34px; padding: 4px 12px; border: 1px solid var(--fg); border-radius: 8px;
+  background: var(--fg); color: var(--bg); cursor: pointer; font: inherit;
+}
+#finish .secondary { background: transparent; color: var(--fg); border-color: var(--rule); }
+#finish button:hover { box-shadow: inset 0 0 0 1px currentColor; }
+#finish button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+#finish button[aria-disabled="true"] { opacity: 0.65; cursor: default; box-shadow: none; }
 #progress { position: fixed; left: 0; bottom: 0; height: 2px; background: var(--muted); opacity: 0.35; }
 
 #panel {
@@ -110,8 +126,17 @@ kbd { font: 11px -apple-system, sans-serif; opacity: 0.7; margin-left: 4px; }
 </head>
 <body>
 <div id="panel" hidden></div>
+<footer id="reader-footer" hidden>
+  <div class="line">
+    <span id="status"></span>
+    <div id="finish" hidden>
+      <button id="mark-read" type="button" aria-keyshortcuts="A" title="Archive in Readwise Reader and return to the queue">Mark as read <kbd aria-hidden="true">A</kbd></button>
+      <button id="read-another" type="button" class="secondary">Back to queue</button>
+    </div>
+  </div>
+  <div id="archive-feedback" role="status"></div>
+</footer>
 <div id="clip" hidden><div id="book"></div></div>
-<div id="status"></div>
 <div id="progress"></div>
 <div id="help" hidden>
   <table>
@@ -122,7 +147,7 @@ kbd { font: 11px -apple-system, sans-serif; opacity: 0.7; margin-left: 4px; }
     <tr><td>T</td><td>Theme (paper, sepia, dark)</td></tr>
     <tr><td>F</td><td>Serif / sans</td></tr>
     <tr><td>O</td><td>Open original in browser</td></tr>
-    <tr><td>A</td><td>Archive in Readwise Reader, back to queue</td></tr>
+    <tr><td>A</td><td>Archive and return to queue (mark as read on the last spread)</td></tr>
     <tr><td>⌘L / ⌘B / ⌘V</td><td>New URL / read browser tab / paste a URL</td></tr>
     <tr><td>Esc</td><td>Leave full screen</td></tr>
   </table>
@@ -134,6 +159,7 @@ const post = (type, extra = {}) => window.webkit?.messageHandlers?.twoup?.postMe
 const prefs = Object.assign({ fontSize: 20, theme: "paper", font: "serif" }, D.prefs || {});
 const root = document.documentElement;
 let page = 0, pages = 1, stride = 0, colStride = 0;
+let archiving = false;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u || ""; } };
@@ -165,7 +191,7 @@ function initPanel() {
   const isError = D.mode === "error";
   panel.innerHTML = `<div class="wrap">
     <h1 class="brand">TwoUp</h1>
-    ${D.message ? `<p class="msg">${esc(D.message)}</p>` : ""}
+    ${D.message ? `<p class="${isError ? "msg" : ""}" role="status">${esc(D.message)}</p>` : ""}
     <form id="f"><input id="u" type="text" placeholder="Paste an article URL" spellcheck="false" autocomplete="off"
       value="${isError ? esc(D.url || "") : ""}"><button>Read</button></form>
     <div class="row">
@@ -191,6 +217,8 @@ window.updateQueue = (q) => {
   if (q.location && q.location !== location) return;
   const box = $("queue");
   if (!box) return;
+  const focused = document.activeElement;
+  const focusedDocID = focused?.closest("#queue .doc")?.dataset.id;
   if (q.state === "needsToken") {
     box.innerHTML = `<div class="connect">
       <p>Connect Readwise Reader to read your queue here.</p>
@@ -223,8 +251,12 @@ window.updateQueue = (q) => {
   box.querySelectorAll(".doc").forEach((b) => b.onclick = () => post("openDoc", { id: b.dataset.id }));
   $("refresh").onclick = () => post("queue", { location, force: true });
   $("disconnect").onclick = () => post("disconnect");
-  const first = box.querySelector(".doc");
-  if (first && !queueFocused && document.activeElement?.tagName !== "INPUT") { first.focus(); queueFocused = true; }
+  const docs = [...box.querySelectorAll(".doc")];
+  if (docs.length && (focusedDocID || (!queueFocused && focused?.tagName !== "INPUT"))) {
+    const next = docs.find((doc) => doc.dataset.id === focusedDocID) ?? docs[0];
+    next.focus();
+    queueFocused = true;
+  }
 };
 
 function bindQueueKeys() {
@@ -257,6 +289,7 @@ function initArticle() {
   const a = D.article;
   const clip = $("clip"), book = $("book");
   clip.hidden = false;
+  $("reader-footer").hidden = false;
   document.title = a.title || host(D.url);
   if (a.lang) root.lang = a.lang;
 
@@ -266,7 +299,16 @@ function initArticle() {
   const firstHead = content.querySelector("h1, h2");
   if (firstHead && firstHead.textContent.trim() === (a.title || "").trim()) firstHead.remove();
   book.appendChild(content);
-  book.insertAdjacentHTML("beforeend", `<p class="end" id="end">❧</p>`);
+  book.insertAdjacentHTML("beforeend", '<p class="end" aria-hidden="true">❧</p>');
+
+  const markRead = $("mark-read"), readAnother = $("read-another");
+  markRead.hidden = !D.docId;
+  markRead.onclick = () => archive(true);
+  if (!D.docId) {
+    readAnother.textContent = "Choose another article";
+    readAnother.classList.remove("secondary");
+  }
+  readAnother.onclick = () => { if ($("help").hidden) post("backToQueue"); };
 
   let relayoutTimer;
   const relayoutSoon = () => { clearTimeout(relayoutTimer); relayoutTimer = setTimeout(layout, 120); };
@@ -293,7 +335,8 @@ function layout() {
   const gap = Math.max(40, Math.round(vw * 0.045));
   const colW = Math.min(Math.floor((vw * 0.9 - gap) / 2), Math.round(prefs.fontSize * 34));
   const W = colW * 2 + gap;
-  const top = Math.round(vh * 0.07), H = vh - top - Math.round(vh * 0.08);
+  const top = Math.round(vh * 0.07);
+  const H = vh - top - Math.max(72, Math.round(vh * 0.08));
   Object.assign(clip.style, { width: W + "px", height: H + "px", top: top + "px", left: Math.floor((vw - W) / 2) + "px" });
   book.style.width = W + "px";
   book.style.columnGap = gap + "px";
@@ -301,7 +344,7 @@ function layout() {
   stride = W + gap;
   colStride = colW + gap;
 
-  const endLeft = $("end").getBoundingClientRect().left - book.getBoundingClientRect().left;
+  const endLeft = book.lastElementChild.getBoundingClientRect().left - book.getBoundingClientRect().left;
   const columns = Math.floor(endLeft / colStride + 0.01) + 1;
   pages = Math.max(1, Math.ceil(columns / 2));
   page = Math.round(frac * (pages - 1));
@@ -311,13 +354,26 @@ function layout() {
 function show() {
   $("book").style.transform = `translateX(${-page * stride}px)`;
   $("status").textContent = `${page + 1} / ${pages}`;
+  $("finish").hidden = page !== pages - 1;
   $("progress").style.width = (pages > 1 ? (page / (pages - 1)) * 100 : 100) + "%";
 }
 
-window.flash = (message) => {
-  $("status").textContent = message;
-  clearTimeout(window.flashTimer);
-  window.flashTimer = setTimeout(show, 2500);
+function setArchiveFeedback(message) {
+  $("mark-read").setAttribute("aria-disabled", String(archiving));
+  $("archive-feedback").textContent = message;
+}
+
+function archive(markRead) {
+  if (!D.docId || archiving || !$("help").hidden) return;
+  archiving = true;
+  setArchiveFeedback("Saving to Readwise…");
+  post("archive", { id: D.docId, markRead });
+}
+
+window.archiveFailed = (id, message) => {
+  if (D.docId !== id) return;
+  archiving = false;
+  setArchiveFeedback(message);
 };
 
 function go(delta) {
@@ -333,7 +389,10 @@ function bindArticleInput() {
     switch (e.key) {
       case "ArrowRight": case "ArrowDown": case "PageDown": case "j": case "l": go(1); break;
       case "ArrowLeft": case "ArrowUp": case "PageUp": case "k": case "h": go(-1); break;
-      case " ": go(e.shiftKey ? -1 : 1); break;
+      case " ":
+        if (e.target instanceof HTMLButtonElement) handled = false;
+        else go(e.shiftKey ? -1 : 1);
+        break;
       case "Home": case "g": page = 0; show(); break;
       case "End": case "G": page = pages - 1; show(); break;
       case "=": case "+": prefs.fontSize = Math.min(34, prefs.fontSize + 1); savePrefs(); layout(); break;
@@ -341,7 +400,10 @@ function bindArticleInput() {
       case "t": case "T": prefs.theme = { paper: "sepia", sepia: "dark", dark: "paper" }[prefs.theme] || "paper"; savePrefs(); break;
       case "f": case "F": prefs.font = prefs.font === "serif" ? "sans" : "serif"; savePrefs(); layout(); break;
       case "o": case "O": post("original"); break;
-      case "a": case "A": if (D.docId) post("archive"); else handled = false; break;
+      case "a": case "A":
+        if (D.docId) { if (!e.repeat) archive(page === pages - 1); }
+        else handled = false;
+        break;
       case "?": help.hidden = !help.hidden; break;
       case "Escape": if (!help.hidden) help.hidden = true; else post("exitFullscreen"); break;
       default: handled = false;
@@ -349,9 +411,9 @@ function bindArticleInput() {
     if (handled) e.preventDefault();
   });
 
-  // Click left half: back. Right half: forward. Links and text selection are left alone.
+  // Click left half: back. Right half: forward. Leave controls and text selection alone.
   document.addEventListener("click", (e) => {
-    if (e.target.closest("a") || String(window.getSelection())) return;
+    if (e.target.closest("a, button") || String(window.getSelection())) return;
     if (!$("help").hidden) { $("help").hidden = true; return; }
     go(e.clientX < window.innerWidth / 2 ? -1 : 1);
   });

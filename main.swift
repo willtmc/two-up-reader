@@ -128,8 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var token = 0
     var extracting = Set<Int>()
     var currentDocID: String?
+    var archivingDocIDs = Set<String>()
+    var showingQueue = false
     var queueLocation = "later"
     var queueCache: [String: QueueCache] = [:]
+    var queueRevision = 0
 
     // MARK: Launch
 
@@ -257,6 +260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func render(_ mode: String, article: [String: Any]? = nil, url: URL? = nil, message: String? = nil) {
+        showingQueue = mode == "start" || mode == "error"
         var data: [String: Any] = ["mode": mode, "prefs": prefs()]
         if let article { data["article"] = article }
         if let url { data["url"] = url.absoluteString }
@@ -267,9 +271,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.makeFirstResponder(reader)
     }
 
-    func showStart(message: String? = nil, url: URL? = nil) {
+    func showStart(message: String? = nil, url: URL? = nil, notice: String? = nil) {
+        token += 1
         pending = nil
-        render(message == nil ? "start" : "error", url: url, message: message)
+        currentDocID = nil
+        window.title = "TwoUp"
+        render(message == nil ? "start" : "error", url: url, message: message ?? notice)
     }
 
     // MARK: Loading and extraction
@@ -335,8 +342,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         reader.evaluateJavaScript("window.updateQueue && window.updateQueue(\(jsonLiteral(state)))")
     }
 
-    func flash(_ message: String) {
-        reader.evaluateJavaScript("window.flash && window.flash(\(jsonLiteral(message)))")
+    func archiveFailed(_ id: String, message: String) {
+        reader.evaluateJavaScript("window.archiveFailed && window.archiveFailed(\(jsonLiteral(id)), \(jsonLiteral(message)))")
     }
 
     func serveQueue(force: Bool) {
@@ -355,10 +362,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func fetchQueue(_ location: String, key: String, cursor: String?, items: [[String: Any]], pagesLeft: Int) {
+        let revision = queueRevision
         var components = URLComponents(string: "https://readwise.io/api/v3/list/")!
         components.queryItems = [URLQueryItem(name: "location", value: location)]
             + (cursor.map { [URLQueryItem(name: "pageCursor", value: $0)] } ?? [])
         readwiseRequest(components.url!, token: key) { result in
+            guard self.queueRevision == revision else { return }
             switch result {
             case .failure(let error):
                 self.pushQueue(["state": "error", "location": location, "message": error.localizedDescription,
@@ -382,6 +391,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         token += 1
         let t = token
         pending = nil
+        currentDocID = nil
         let item = queueCache.values.flatMap(\.items).first { $0["id"] as? String == id }
         let listedURL = (item?["source_url"] as? String).flatMap(normalizeURL)
         render("loading", url: listedURL)
@@ -414,20 +424,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    func archiveCurrent() {
-        guard let id = currentDocID, let key = Keychain.get() else { return }
-        flash("Archiving…")
+    func archiveCurrent(_ id: String, markRead: Bool) {
+        guard id == currentDocID, !archivingDocIDs.contains(id) else { return }
+        guard let key = Keychain.get() else {
+            archiveFailed(id, message: "Connect Readwise Reader from the queue, then try again.")
+            return
+        }
+        archivingDocIDs.insert(id)
+        var update: [String: Any] = ["location": "archive"]
+        if markRead {
+            update["reading_progress"] = 1
+            update["seen"] = true
+        }
         readwiseRequest(URL(string: "https://readwise.io/api/v3/update/\(id)/")!, method: "PATCH",
-                        body: ["location": "archive"], token: key) { result in
+                        body: update, token: key) { result in
+            self.archivingDocIDs.remove(id)
             switch result {
             case .failure(let error):
-                self.flash(error.localizedDescription)
+                guard self.currentDocID == id else { return }
+                let action = markRead ? "mark as read" : "archive"
+                self.archiveFailed(id, message: "Couldn’t \(action). \(error.localizedDescription)")
             case .success:
+                // A list response started before the archive could still contain this document.
+                self.queueRevision += 1
                 for location in self.queueCache.keys {
                     self.queueCache[location]?.items.removeAll { $0["id"] as? String == id }
                 }
-                self.currentDocID = nil
-                self.showStart()
+                if self.currentDocID == id {
+                    self.showStart(notice: markRead ? "Marked as read." : "Archived.")
+                } else if self.showingQueue {
+                    self.serveQueue(force: false)
+                }
             }
         }
     }
@@ -439,6 +466,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case .success:
                 Keychain.set(key)
                 self.queueCache = [:]
+                self.queueRevision += 1
                 self.serveQueue(force: true)
             case .failure(let error):
                 self.pushQueue(["state": "needsToken", "message": error.localizedDescription])
@@ -530,12 +558,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             serveQueue(force: body["force"] as? Bool ?? false)
         case "openDoc":
             if let id = body["id"] as? String { openDoc(id) }
-        case "archive": archiveCurrent()
+        case "archive":
+            if let id = body["id"] as? String { archiveCurrent(id, markRead: body["markRead"] as? Bool ?? false) }
+        case "backToQueue": showStart()
         case "token":
             if let value = body["value"] as? String { connectReadwise(value) }
         case "disconnect":
             Keychain.delete()
             queueCache = [:]
+            queueRevision += 1
             pushQueue(["state": "needsToken"])
         case "exitFullscreen":
             if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
