@@ -1,7 +1,7 @@
 import Cocoa
 import WebKit
 
-struct Browser {
+struct Browser: Sendable {
     let bundleID: String
     let name: String
     let isSafari: Bool
@@ -17,21 +17,6 @@ let browsers = [
 
 let safariUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
-func normalizeURL(_ raw: String) -> URL? {
-    var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    if text.isEmpty { return nil }
-    if !text.contains("://") { text = "https://" + text }
-    guard let url = URL(string: text), let scheme = url.scheme?.lowercased(),
-          ["http", "https"].contains(scheme), url.host != nil else { return nil }
-    return url
-}
-
-func jsonLiteral(_ object: Any) -> String {
-    guard let data = try? JSONSerialization.data(withJSONObject: object, options: .fragmentsAllowed),
-          let text = String(data: data, encoding: .utf8) else { return "{}" }
-    return text.replacingOccurrences(of: "</", with: "<\\/")
-}
-
 func resourceText(_ name: String, _ ext: String) -> String {
     guard let url = Bundle.main.url(forResource: name, withExtension: ext),
           let text = try? String(contentsOf: url, encoding: .utf8) else {
@@ -41,35 +26,74 @@ func resourceText(_ name: String, _ ext: String) -> String {
     return text
 }
 
+func nsColor(hex: String) -> NSColor {
+    let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+    guard cleaned.count == 6, let value = UInt32(cleaned, radix: 16) else {
+        return .windowBackgroundColor
+    }
+    let r = CGFloat((value >> 16) & 0xff) / 255.0
+    let g = CGFloat((value >> 8) & 0xff) / 255.0
+    let b = CGFloat(value & 0xff) / 255.0
+    return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+}
+
 // MARK: Readwise Reader
 
+@MainActor
 enum Keychain {
-    static let base: [String: Any] = [
-        kSecClass as String: kSecClassGenericPassword,
-        kSecAttrService as String: "com.mclemore.twoup",
-        kSecAttrAccount as String: "readwise",
-    ]
+    private static func baseQuery() -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.mclemore.twoup",
+            kSecAttrAccount as String: "readwise",
+        ]
+    }
+
     static func get() -> String? {
-        var query = base
+        var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var out: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
+              let data = out as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }
-    static func set(_ value: String) {
-        SecItemDelete(base as CFDictionary)
-        var query = base
+
+    @discardableResult
+    static func set(_ value: String) -> Bool {
+        let deleteStatus = SecItemDelete(baseQuery() as CFDictionary)
+        if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
+            NSLog("TwoUp: Keychain delete before save returned OSStatus %d", deleteStatus)
+        }
+        var query = baseQuery()
         query[kSecValueData as String] = Data(value.utf8)
-        SecItemAdd(query as CFDictionary, nil)
+        query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let status = SecItemAdd(query as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("TwoUp: Keychain save failed with OSStatus %d", status)
+            return false
+        }
+        return true
     }
-    static func delete() { SecItemDelete(base as CFDictionary) }
+
+    static func delete() {
+        let status = SecItemDelete(baseQuery() as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            NSLog("TwoUp: Keychain delete failed with OSStatus %d", status)
+        }
+    }
 }
 
 struct ReadwiseError: LocalizedError { let errorDescription: String? }
 
-func readwiseRequest(_ url: URL, method: String = "GET", body: [String: Any]? = nil, token: String,
-                     completion: @escaping (Result<[String: Any], Error>) -> Void) {
+@MainActor
+func readwiseRequest(
+    _ url: URL,
+    method: String = "GET",
+    body: [String: Any]? = nil,
+    token: String,
+    completion: @escaping @MainActor (Result<[String: Any], Error>) -> Void
+) {
     var request = URLRequest(url: url)
     request.httpMethod = method
     request.setValue("Token \(token)", forHTTPHeaderField: "Authorization")
@@ -77,36 +101,28 @@ func readwiseRequest(_ url: URL, method: String = "GET", body: [String: Any]? = 
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
-    URLSession.shared.dataTask(with: request) { data, response, error in
-        let http = response as? HTTPURLResponse
-        let status = http?.statusCode ?? 0
+    Task { @MainActor in
         let result: Result<[String: Any], Error>
-        if let error {
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let http = response as? HTTPURLResponse
+            let status = http?.statusCode ?? 0
+            if status == 401 || status == 403 {
+                result = .failure(ReadwiseError(errorDescription: "Readwise rejected the token. Reconnect with a fresh one."))
+            } else if status == 429 {
+                let wait = http?.value(forHTTPHeaderField: "Retry-After") ?? "a few"
+                result = .failure(ReadwiseError(errorDescription: "Readwise rate limit hit. Try again in \(wait) seconds."))
+            } else if !(200..<300).contains(status) {
+                result = .failure(ReadwiseError(errorDescription: "Readwise returned HTTP \(status)."))
+            } else {
+                let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+                result = .success(object ?? [:])
+            }
+        } catch {
             result = .failure(error)
-        } else if status == 401 || status == 403 {
-            result = .failure(ReadwiseError(errorDescription: "Readwise rejected the token. Reconnect with a fresh one."))
-        } else if status == 429 {
-            let wait = http?.value(forHTTPHeaderField: "Retry-After") ?? "a few"
-            result = .failure(ReadwiseError(errorDescription: "Readwise rate limit hit. Try again in \(wait) seconds."))
-        } else if !(200..<300).contains(status) {
-            result = .failure(ReadwiseError(errorDescription: "Readwise returned HTTP \(status)."))
-        } else {
-            let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-            result = .success(object ?? [:])
         }
-        DispatchQueue.main.async { completion(result) }
-    }.resume()
-}
-
-// Keeps only readable top-level documents (no highlights, notes, PDFs, videos).
-func slimDoc(_ doc: [String: Any]) -> [String: Any]? {
-    guard let id = doc["id"] as? String, doc["parent_id"] == nil || doc["parent_id"] is NSNull,
-          ["article", "email", "rss"].contains(doc["category"] as? String ?? "") else { return nil }
-    var out: [String: Any] = ["id": id]
-    for key in ["title", "author", "site_name", "source_url", "word_count", "reading_progress"] {
-        if let value = doc[key], !(value is NSNull) { out[key] = value }
+        completion(result)
     }
-    return out
 }
 
 struct QueueCache {
@@ -114,6 +130,28 @@ struct QueueCache {
     var fetchedAt: Date
 }
 
+struct PendingLoad {
+    let token: Int
+    let url: URL
+    let html: String?
+    var isExtracting = false
+}
+
+enum BrowserTabGrabResult: Sendable {
+    case success(url: URL, html: String?)
+    case failure(String)
+}
+
+@MainActor
+final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(_ target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(userContentController, didReceive: message)
+    }
+}
+
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKScriptMessageHandler {
     var window: NSWindow!
     var reader: WKWebView!
@@ -122,17 +160,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var template = ""
     var extractorSource = ""
     var lastBrowserID: String?
+    var workspaceObserver: NSObjectProtocol?
     var launchURL: URL?
     var currentURL: URL?
-    var pending: (token: Int, url: URL, html: String?)?
+    var pending: PendingLoad?
     var token = 0
-    var extracting = Set<Int>()
+    var expectingReaderLoad = false
+    var expectedReaderBaseURL: URL?
     var currentDocID: String?
     var archivingDocIDs = Set<String>()
     var showingQueue = false
     var queueLocation = "later"
     var queueCache: [String: QueueCache] = [:]
     var queueRevision = 0
+    var queueFetchToken = 0
+
+    private let preferFullScreenKey = "preferFullScreen"
 
     // MARK: Launch
 
@@ -141,18 +184,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            browsers.contains(where: { $0.bundleID == front }) {
             lastBrowserID = front
         }
-        NSWorkspace.shared.notificationCenter.addObserver(
+        workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   let id = app.bundleIdentifier, browsers.contains(where: { $0.bundleID == id }) else { return }
-            self?.lastBrowserID = id
+            Task { @MainActor [weak self] in
+                self?.lastBrowserID = id
+            }
         }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         template = resourceText("reader", "html")
         extractorSource = resourceText("Readability", "js") + "\n" + resourceText("extract", "js") + "\ntrue;"
+        let savedPrefs = prefs()
+        if let savedLoc = savedPrefs["queueLocation"] as? String, !savedLoc.isEmpty {
+            queueLocation = savedLoc
+        }
         buildMenu()
 
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
@@ -163,33 +212,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         window.title = "TwoUp"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.minSize = NSSize(width: 640, height: 480)
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.setFrameAutosaveName("TwoUpMainWindow")
+        syncWindowAppearance(theme: savedPrefs["theme"] as? String)
         let bounds = window.contentView!.bounds
 
         let loaderConfig = WKWebViewConfiguration()
+        loaderConfig.websiteDataStore = .nonPersistent()
         loaderConfig.mediaTypesRequiringUserActionForPlayback = .all
         loader = WKWebView(frame: bounds, configuration: loaderConfig)
         loader.customUserAgent = safariUserAgent
         loader.navigationDelegate = self
         loader.autoresizingMask = [.width, .height]
+        loader.setValue(false, forKey: "drawsBackground")
 
         let readerConfig = WKWebViewConfiguration()
-        readerConfig.userContentController.add(self, name: "twoup")
+        readerConfig.userContentController.add(WeakScriptMessageHandler(self), name: "twoup")
         reader = WKWebView(frame: bounds, configuration: readerConfig)
         reader.navigationDelegate = self
         reader.autoresizingMask = [.width, .height]
+        reader.setValue(false, forKey: "drawsBackground")
 
         window.contentView!.addSubview(loader)
         window.contentView!.addSubview(reader)
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(reader)
         NSApp.activate(ignoringOtherApps: true)
-        window.toggleFullScreen(nil)
 
-        let args = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") }
-        if let url = launchURL ?? args.first.flatMap(normalizeURL) {
+        let preferFullScreen = UserDefaults.standard.object(forKey: preferFullScreenKey) as? Bool ?? true
+        if preferFullScreen && !window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        }
+
+        let cliURL = parseLaunchURL(arguments: Array(CommandLine.arguments.dropFirst()))
+        if let url = launchURL ?? cliURL {
             open(url, html: nil)
         } else if lastBrowserID != nil {
             grabBrowserTab()
@@ -199,11 +258,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first(where: { ["http", "https"].contains($0.scheme?.lowercased() ?? "") }) else { return }
+        guard let url = urls.first(where: { ["http", "https"].contains($0.scheme?.lowercased() ?? "") && !($0.host ?? "").isEmpty }) else { return }
         if reader == nil { launchURL = url } else { open(url, html: nil) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        reader?.configuration.userContentController.removeScriptMessageHandler(forName: "twoup")
+        if let observer = workspaceObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(observer)
+            workspaceObserver = nil
+        }
+    }
+
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        UserDefaults.standard.set(true, forKey: preferFullScreenKey)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        UserDefaults.standard.set(false, forKey: preferFullScreenKey)
+    }
 
     // MARK: Menu
 
@@ -244,14 +319,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         submenu("View", [
+            item("Zoom In", #selector(zoomInAction), "+"),
+            item("Zoom Out", #selector(zoomOutAction), "-"),
+            item("Actual Size", #selector(zoomResetAction), "0"),
+            .separator(),
             item("Toggle Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control]),
         ])
         NSApp.mainMenu = main
     }
 
-    @objc func openURLAction() { showStart() }
+    @objc func openURLAction() { showStart(focusUrl: true) }
     @objc func grabAction() { grabBrowserTab() }
-    @objc func originalAction() { if let url = currentURL { NSWorkspace.shared.open(url) } }
+    @objc func originalAction() {
+        if let url = currentURL, isAllowedExternalURL(url) {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    @objc func zoomInAction() {
+        reader.evaluateJavaScript("window.twoupZoom && window.twoupZoom(1)")
+    }
+    @objc func zoomOutAction() {
+        reader.evaluateJavaScript("window.twoupZoom && window.twoupZoom(-1)")
+    }
+    @objc func zoomResetAction() {
+        reader.evaluateJavaScript("window.twoupZoom && window.twoupZoom(0)")
+    }
 
     // MARK: Screens
 
@@ -259,24 +351,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         UserDefaults.standard.dictionary(forKey: "prefs") ?? [:]
     }
 
-    func render(_ mode: String, article: [String: Any]? = nil, url: URL? = nil, message: String? = nil) {
+    func syncWindowAppearance(theme: String?) {
+        let spec = themeWindowAppearance(theme: theme)
+        if let isDark = spec.isDark {
+            window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+            window.backgroundColor = nsColor(hex: spec.bgHex)
+        } else {
+            window.appearance = nil
+            let systemDark = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            window.backgroundColor = nsColor(hex: systemDark ? "#161616" : spec.bgHex)
+        }
+    }
+
+    func render(_ mode: String, article: [String: Any]? = nil, url: URL? = nil, message: String? = nil, focusUrl: Bool = false) {
         showingQueue = mode == "start" || mode == "error"
         var data: [String: Any] = ["mode": mode, "prefs": prefs()]
         if let article { data["article"] = article }
         if let url { data["url"] = url.absoluteString }
         if let message { data["message"] = message }
-        if mode == "article", let currentDocID { data["docId"] = currentDocID }
+        if focusUrl { data["focusUrl"] = true }
+        if mode == "article" {
+            if let currentDocID { data["docId"] = currentDocID }
+            if let dir = article?["dir"] as? String, !dir.isEmpty { data["dir"] = dir }
+        }
         let html = template.replacingOccurrences(of: "/*__TWOUP_DATA__*/", with: "window.TWOUP = \(jsonLiteral(data));")
-        reader.loadHTMLString(html, baseURL: mode == "article" ? url : nil)
+        let baseURL = mode == "article" ? url : nil
+        expectingReaderLoad = true
+        expectedReaderBaseURL = baseURL
+        reader.loadHTMLString(html, baseURL: baseURL)
         window.makeFirstResponder(reader)
     }
 
-    func showStart(message: String? = nil, url: URL? = nil, notice: String? = nil) {
+    func showStart(message: String? = nil, url: URL? = nil, notice: String? = nil, focusUrl: Bool = false) {
         token += 1
         pending = nil
         currentDocID = nil
+        stopLoader()
         window.title = "TwoUp"
-        render(message == nil ? "start" : "error", url: url, message: message ?? notice)
+        render(message == nil ? "start" : "error", url: url, message: message ?? notice, focusUrl: focusUrl)
     }
 
     // MARK: Loading and extraction
@@ -284,7 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func open(_ url: URL, html: String?, docID: String? = nil) {
         token += 1
         let t = token
-        pending = (t, url, html)
+        pending = PendingLoad(token: t, url: url, html: html)
         currentURL = url
         currentDocID = docID
         render("loading", url: url)
@@ -294,20 +406,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             loader.load(URLRequest(url: url))
         }
         // Slow or never-finishing pages: extract whatever has loaded.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { self.extract(token: t) }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            self?.extract(token: t)
+        }
     }
 
     func extract(token t: Int) {
-        guard let p = pending, p.token == t, !extracting.contains(t) else { return }
-        extracting.insert(t)
+        guard var p = pending, p.token == t, !p.isExtracting else { return }
+        p.isExtracting = true
+        pending = p
         let base = (p.html == nil ? loader.url : nil) ?? p.url
-        loader.evaluateJavaScript(extractorSource, in: nil, in: .defaultClient) { _ in
+        guard !extractorSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            fail("TwoUp is missing its article extractor resources.", url: base)
+            return
+        }
+        loader.evaluateJavaScript(extractorSource, in: nil, in: .defaultClient) { [weak self] injectResult in
+            guard let self, self.pending?.token == t else { return }
+            if case .failure(let error) = injectResult {
+                NSLog("TwoUp: extractor script evaluation failed: %@", error.localizedDescription)
+                self.fail("Couldn't read that page (\(error.localizedDescription)).", url: base)
+                return
+            }
             self.loader.callAsyncJavaScript(
                 "return __twoupExtract(html, base);",
                 arguments: ["html": p.html ?? NSNull(), "base": base.absoluteString],
                 in: nil, in: .defaultClient
-            ) { result in
-                guard self.pending?.token == t else { return }
+            ) { [weak self] result in
+                guard let self, self.pending?.token == t else { return }
                 switch result {
                 case .success(let value):
                     if let article = value as? [String: Any], let content = article["content"] as? String, !content.isEmpty {
@@ -328,7 +454,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func fail(_ message: String, url: URL) {
         showStart(message: message, url: url)
-        stopLoader()
     }
 
     func stopLoader() {
@@ -358,16 +483,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         } else {
             pushQueue(["state": "loading", "location": location, "items": []])
         }
-        fetchQueue(location, key: key, cursor: nil, items: [], pagesLeft: 3)
+        queueFetchToken += 1
+        fetchQueue(location, key: key, cursor: nil, items: [], pagesLeft: 3, fetchToken: queueFetchToken)
     }
 
-    func fetchQueue(_ location: String, key: String, cursor: String?, items: [[String: Any]], pagesLeft: Int) {
+    func fetchQueue(_ location: String, key: String, cursor: String?, items: [[String: Any]], pagesLeft: Int, fetchToken: Int) {
         let revision = queueRevision
-        var components = URLComponents(string: "https://readwise.io/api/v3/list/")!
-        components.queryItems = [URLQueryItem(name: "location", value: location)]
-            + (cursor.map { [URLQueryItem(name: "pageCursor", value: $0)] } ?? [])
-        readwiseRequest(components.url!, token: key) { result in
-            guard self.queueRevision == revision else { return }
+        var queryItems = [URLQueryItem(name: "location", value: location)]
+        if let cursor {
+            queryItems.append(URLQueryItem(name: "pageCursor", value: cursor))
+        }
+        guard let url = readwiseEndpointURL(path: "/api/v3/list/", queryItems: queryItems) else {
+            pushQueue(["state": "error", "location": location, "message": "Invalid Readwise queue request.",
+                       "items": queueCache[location]?.items ?? []])
+            return
+        }
+        readwiseRequest(url, token: key) { [weak self] result in
+            guard let self, self.queueRevision == revision, self.queueFetchToken == fetchToken else { return }
             switch result {
             case .failure(let error):
                 self.pushQueue(["state": "error", "location": location, "message": error.localizedDescription,
@@ -375,7 +507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case .success(let json):
                 let all = items + (json["results"] as? [[String: Any]] ?? []).compactMap(slimDoc)
                 if let next = json["nextPageCursor"] as? String, pagesLeft > 1 {
-                    self.fetchQueue(location, key: key, cursor: next, items: all, pagesLeft: pagesLeft - 1)
+                    self.fetchQueue(location, key: key, cursor: next, items: all, pagesLeft: pagesLeft - 1, fetchToken: fetchToken)
                     return
                 }
                 self.queueCache[location] = QueueCache(items: all, fetchedAt: Date())
@@ -392,13 +524,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let t = token
         pending = nil
         currentDocID = nil
+        stopLoader()
         let item = queueCache.values.flatMap(\.items).first { $0["id"] as? String == id }
         let listedURL = (item?["source_url"] as? String).flatMap(normalizeURL)
         render("loading", url: listedURL)
-        var components = URLComponents(string: "https://readwise.io/api/v3/list/")!
-        components.queryItems = [URLQueryItem(name: "id", value: id), URLQueryItem(name: "withHtmlContent", value: "true")]
-        readwiseRequest(components.url!, token: key) { result in
-            guard self.token == t else { return }
+        guard let url = readwiseEndpointURL(path: "/api/v3/list/", queryItems: [
+            URLQueryItem(name: "id", value: id),
+            URLQueryItem(name: "withHtmlContent", value: "true"),
+        ]) else {
+            showStart(message: "Invalid Readwise document request.")
+            return
+        }
+        readwiseRequest(url, token: key) { [weak self] result in
+            guard let self, self.token == t else { return }
             switch result {
             case .failure(let error):
                 self.showStart(message: error.localizedDescription)
@@ -418,8 +556,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 self.currentURL = url
                 self.window.title = text("title").isEmpty ? "TwoUp" : text("title")
                 self.render("article",
-                            article: ["title": text("title"), "byline": text("author"), "site": text("site_name"), "content": html],
-                            url: url ?? URL(string: "https://read.readwise.io")!)
+                            article: [
+                                "title": text("title"),
+                                "byline": text("author"),
+                                "site": text("site_name"),
+                                "dir": text("dir"),
+                                "content": html,
+                            ],
+                            url: url ?? readwiseReaderBaseURL())
             }
         }
     }
@@ -430,14 +574,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             archiveFailed(id, message: "Connect Readwise Reader from the queue, then try again.")
             return
         }
+        guard let url = readwiseUpdateURL(docID: id) else {
+            archiveFailed(id, message: "Invalid Readwise document ID.")
+            return
+        }
         archivingDocIDs.insert(id)
         var update: [String: Any] = ["location": "archive"]
         if markRead {
             update["reading_progress"] = 1
             update["seen"] = true
         }
-        readwiseRequest(URL(string: "https://readwise.io/api/v3/update/\(id)/")!, method: "PATCH",
-                        body: update, token: key) { result in
+        readwiseRequest(url, method: "PATCH", body: update, token: key) { [weak self] result in
+            guard let self else { return }
             self.archivingDocIDs.remove(id)
             switch result {
             case .failure(let error):
@@ -447,6 +595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case .success:
                 // A list response started before the archive could still contain this document.
                 self.queueRevision += 1
+                self.queueFetchToken += 1
                 for location in self.queueCache.keys {
                     self.queueCache[location]?.items.removeAll { $0["id"] as? String == id }
                 }
@@ -461,13 +610,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func connectReadwise(_ raw: String) {
         let key = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        readwiseRequest(URL(string: "https://readwise.io/api/v2/auth/")!, token: key) { result in
+        guard let url = readwiseEndpointURL(path: "/api/v2/auth/") else {
+            pushQueue(["state": "needsToken", "message": "Invalid Readwise auth endpoint."])
+            return
+        }
+        readwiseRequest(url, token: key) { [weak self] result in
+            guard let self else { return }
             switch result {
             case .success:
-                Keychain.set(key)
-                self.queueCache = [:]
-                self.queueRevision += 1
-                self.serveQueue(force: true)
+                if Keychain.set(key) {
+                    self.queueCache = [:]
+                    self.queueRevision += 1
+                    self.queueFetchToken += 1
+                    self.serveQueue(force: true)
+                } else {
+                    self.pushQueue(["state": "needsToken", "message": "Couldn't save the token to your macOS Keychain."])
+                }
             case .failure(let error):
                 self.pushQueue(["state": "needsToken", "message": error.localizedDescription])
             }
@@ -483,6 +641,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             showStart(message: "No supported browser is running (Safari, Chrome, Arc, Brave, Edge).")
             return
         }
+        token += 1
+        let t = token
+        pending = nil
+        currentDocID = nil
+        stopLoader()
+        render("loading")
+
+        Task.detached(priority: .userInitiated) {
+            let outcome = Self.runBrowserAppleScript(for: browser)
+            await MainActor.run { [weak self] in
+                guard let self, self.token == t else { return }
+                switch outcome {
+                case .success(let url, let html):
+                    self.open(url, html: html)
+                case .failure(let reason):
+                    self.showStart(message: reason)
+                }
+            }
+        }
+    }
+
+    nonisolated private static func runBrowserAppleScript(for browser: Browser) -> BrowserTabGrabResult {
         let target = "tell application id \"\(browser.bundleID)\""
         let tab = browser.isSafari ? "front document" : "active tab of front window"
         var error: NSDictionary?
@@ -492,8 +672,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             let reason = code == -1743
                 ? "TwoUp isn't allowed to control \(browser.name). Turn it on in System Settings → Privacy & Security → Automation."
                 : "Couldn't read the current tab in \(browser.name)."
-            showStart(message: reason)
-            return
+            return .failure(reason)
         }
         // The page's own HTML keeps logged-in/paywalled content. Needs the browser's
         // "Allow JavaScript from Apple Events" setting; otherwise we load the URL fresh.
@@ -503,15 +682,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             : "\(target) to execute active tab of front window javascript \"\(js)\""
         var htmlError: NSDictionary?
         let html = NSAppleScript(source: htmlScript)?.executeAndReturnError(&htmlError).stringValue
-        open(url, html: (html?.count ?? 0) > 500 ? html : nil)
+        if let htmlError {
+            NSLog("TwoUp: browser HTML AppleScript unavailable for %@: %@", browser.name, htmlError)
+        }
+        return .success(url: url, html: (html?.count ?? 0) > 500 ? html : nil)
     }
 
     // MARK: WKNavigationDelegate
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
-                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if webView === reader, action.navigationType == .linkActivated, let url = action.request.url {
-            NSWorkspace.shared.open(url)
+                 decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
+        if webView === reader {
+            if action.navigationType == .linkActivated {
+                if let url = action.request.url, isAllowedExternalURL(url) {
+                    NSWorkspace.shared.open(url)
+                }
+                decisionHandler(.cancel)
+                return
+            }
+            if action.navigationType == .other,
+               action.targetFrame?.isMainFrame ?? true,
+               expectingReaderLoad,
+               matchesExpectedReaderURL(action.request.url, expected: expectedReaderBaseURL) {
+                expectingReaderLoad = false
+                decisionHandler(.allow)
+                return
+            }
             decisionHandler(.cancel)
             return
         }
@@ -523,18 +719,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if webView === reader {
+            expectingReaderLoad = false
+            return
+        }
         guard webView === loader, let p = pending else { return }
         // Give script-rendered pages a moment to settle.
-        let delay = p.html == nil ? 0.8 : 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.extract(token: p.token) }
+        let delayNs: UInt64 = p.html == nil ? 800_000_000 : 0
+        let expectedToken = p.token
+        if delayNs == 0 {
+            extract(token: expectedToken)
+        } else {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: delayNs)
+                self?.extract(token: expectedToken)
+            }
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if webView === reader {
+            expectingReaderLoad = false
+            return
+        }
         guard webView === loader, let p = pending else { return }
         extract(token: p.token)
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if webView === reader {
+            expectingReaderLoad = false
+            return
+        }
         guard webView === loader, let p = pending else { return }
         if (error as NSError).code == NSURLErrorCancelled { return }
         fail("Couldn't load the page: \(error.localizedDescription)", url: p.url)
@@ -543,7 +759,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // MARK: Messages from the reader page
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+        guard message.webView === reader,
+              message.frameInfo.isMainFrame,
+              let body = message.body as? [String: Any],
+              let type = body["type"] as? String else { return }
         switch type {
         case "open":
             if let text = body["url"] as? String {
@@ -552,7 +771,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case "grab": grabBrowserTab()
         case "original": originalAction()
         case "prefs":
-            if let p = body["prefs"] as? [String: Any] { UserDefaults.standard.set(p, forKey: "prefs") }
+            if let p = body["prefs"] as? [String: Any] {
+                UserDefaults.standard.set(p, forKey: "prefs")
+                syncWindowAppearance(theme: p["theme"] as? String)
+            }
         case "queue":
             if let location = body["location"] as? String { queueLocation = location }
             serveQueue(force: body["force"] as? Bool ?? false)
@@ -567,6 +789,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             Keychain.delete()
             queueCache = [:]
             queueRevision += 1
+            queueFetchToken += 1
             pushQueue(["state": "needsToken"])
         case "exitFullscreen":
             if window.styleMask.contains(.fullScreen) { window.toggleFullScreen(nil) }
@@ -575,8 +798,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 }
 
-let app = NSApplication.shared
-let delegate = AppDelegate()
-app.delegate = delegate
-app.setActivationPolicy(.regular)
-app.run()
+MainActor.assumeIsolated {
+    let app = NSApplication.shared
+    let delegate = AppDelegate()
+    app.delegate = delegate
+    app.setActivationPolicy(.regular)
+    withExtendedLifetime(delegate) {
+        app.run()
+    }
+}
