@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-check:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint build script
+        run: |
+          bash -n build.sh
+          command -v shellcheck >/dev/null 2>&1 || brew install shellcheck
+          shellcheck -S error build.sh
+
+      - name: Validate Info.plist
+        run: plutil -lint Info.plist
+
+      - name: Typecheck make_icon.swift
+        run: swiftc -typecheck -swift-version 5 -warn-concurrency make_icon.swift
+
+      - name: Build and verify app bundle
+        run: |
+          ./build.sh --build-only
+          codesign --verify --deep --strict build/TwoUp.app
+          test -s build/TwoUp.app/Contents/Resources/TwoUp.icns
