@@ -2,44 +2,68 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>TwoUp</title>
 <style>
 :root {
-  --bg: #fbf9f4; --fg: #1f1d1a; --muted: #8a8478; --rule: #e4dfd4; --link: #8a4512;
-  --fs: 20px; --font: "Iowan Old Style", "Palatino", "Georgia", serif; --bookh: 80vh;
+  color-scheme: light;
+  --bg: #fbf9f4; --fg: #1f1d1a; --muted: #6c665c; --rule: #e4dfd4; --border: #857e72; --link: #8a4512; --err: #a83220;
+  --fs: 20px; --font: "Iowan Old Style", "Palatino", "Georgia", serif;
 }
-:root[data-theme="sepia"] { --bg: #f3ead6; --fg: #3a2e1f; --muted: #8f7f63; --rule: #dccfb2; --link: #8a4b14; }
-:root[data-theme="dark"]  { --bg: #161616; --fg: #d9d4ca; --muted: #85807a; --rule: #2e2e2e; --link: #e0a96d; }
+:root[data-theme="sepia"] {
+  color-scheme: light;
+  --bg: #f3ead6; --fg: #3a2e1f; --muted: #6b5d46; --rule: #dccfb2; --border: #877658; --link: #8a4b14; --err: #a83220;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #161616; --fg: #d9d4ca; --muted: #96918a; --rule: #2e2e2e; --border: #706d66; --link: #e0a96d; --err: #f07a65;
+}
 :root[data-font="sans"] { --font: -apple-system, "Helvetica Neue", sans-serif; }
 
 [hidden] { display: none !important; }
+.sr-only:where(:not(:focus-within, :active)) {
+  position: absolute !important; clip-path: inset(50%) !important; overflow: hidden !important;
+  width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important;
+  border: 0 !important; white-space: nowrap !important;
+}
 html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg); }
 body { font-family: var(--font); font-size: var(--fs); line-height: 1.55; -webkit-font-smoothing: antialiased; }
 body.idle, body.idle * { cursor: none !important; }
 
-/* Two-up pages: #book is a 2-column box exactly one spread wide; extra
-   columns overflow to the right and #clip shows one spread at a time. */
-#clip { position: absolute; overflow: hidden; }
+:where(a, button, input, [tabindex="-1"]):focus-visible {
+  outline: 2px solid var(--link); outline-offset: 2px;
+}
+
+/* Two-up pages: #book is a 2-column (or narrow 1-column) box one spread wide;
+   extra columns overflow horizontally and #clip shows one spread at a time. */
+#clip { position: absolute; overflow: clip; }
 #book {
   height: 100%; column-count: 2; column-fill: auto; column-rule: 1px solid var(--rule);
   text-align: justify; hyphens: auto; -webkit-hyphens: auto; overflow-wrap: break-word;
 }
+#book.ragged { text-align: start; hyphens: manual; -webkit-hyphens: manual; }
 #book img, #book video, #book svg, #book picture {
   display: block; max-width: 100%; max-height: calc(var(--bookh) - 3em);
   width: auto; height: auto; margin: 0.6em auto;
 }
+:root[data-theme="dark"] #book img,
+:root[data-theme="dark"] #book svg { background: rgba(251, 249, 244, 0.92); }
+:root[data-theme="dark"] #book svg { padding: 4px; border-radius: 4px; box-sizing: border-box; }
 #book figure { margin: 0.9em 0; break-inside: avoid; }
-#book figcaption, #book .caption { font-size: 0.78em; line-height: 1.4; color: var(--muted); text-align: left; }
+#book figcaption, #book .caption { font-size: 0.78em; line-height: 1.4; color: var(--muted); text-align: start; }
 #book h1, #book h2, #book h3, #book h4, #book h5 {
-  line-height: 1.25; text-align: left; hyphens: manual; break-after: avoid; margin: 1.2em 0 0.5em;
+  line-height: 1.25; text-align: start; hyphens: manual; break-after: avoid; margin: 1.2em 0 0.5em;
 }
 #book h1.title { font-size: 1.9em; line-height: 1.15; margin: 0 0 0.35em; }
-#book .meta { color: var(--muted); font-size: 0.85em; margin-bottom: 1.5em; text-align: left; }
+#book .meta { color: var(--muted); font-size: 0.85em; margin-bottom: 1.5em; text-align: start; }
 #book p { margin: 0 0 0.9em; }
-#book a { color: var(--link); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent); }
-#book blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid var(--rule); font-style: italic; }
+#book a { color: var(--link); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--link) 45%, transparent); }
+#book a:has(img) { border-bottom: 0; }
+#book blockquote { margin: 1em 0; padding-inline-start: 1em; border-inline-start: 3px solid var(--rule); font-style: italic; }
 #book pre, #book code { font-family: ui-monospace, Menlo, monospace; font-size: 0.8em; }
-#book pre { white-space: pre-wrap; text-align: left; background: color-mix(in srgb, var(--fg) 5%, transparent); padding: 0.6em; }
-#book table { font-size: 0.8em; border-collapse: collapse; max-width: 100%; }
+#book code { overflow-wrap: anywhere; }
+#book pre { white-space: pre-wrap; text-align: start; overflow-x: auto; max-width: 100%; background: color-mix(in srgb, var(--fg) 5%, transparent); padding: 0.6em; }
+#book table { display: block; overflow-x: auto; max-width: 100%; font-size: 0.8em; border-collapse: collapse; }
 #book td, #book th { border: 1px solid var(--rule); padding: 0.2em 0.4em; }
 #book hr { border: 0; border-top: 1px solid var(--rule); margin: 1.5em 0; }
 #book .end { text-align: center; color: var(--muted); margin-top: 2em; }
@@ -52,65 +76,79 @@ body.idle, body.idle * { cursor: none !important; }
 #reader-footer .line, #finish { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px 12px; }
 #status {
   font-size: 12px; font-variant-numeric: tabular-nums; letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--fg) 65%, var(--bg));
+  color: var(--muted);
 }
+#reader-hint {
+  font-size: 12px; color: var(--muted);
+  transition: opacity 0.35s ease;
+}
+body.idle #reader-hint { opacity: 0; }
 #archive-feedback { text-align: center; }
 #archive-feedback:empty { position: absolute; }
+#archive-feedback.err { color: var(--err); }
 #finish button {
   min-height: 34px; padding: 4px 12px; border: 1px solid var(--fg); border-radius: 8px;
   background: var(--fg); color: var(--bg); cursor: pointer; font: inherit;
 }
-#finish .secondary { background: transparent; color: var(--fg); border-color: var(--rule); }
+#finish .secondary { background: transparent; color: var(--fg); border-color: var(--border); }
 #finish button:hover { box-shadow: inset 0 0 0 1px currentColor; }
-#finish button:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 #finish button[aria-disabled="true"] { opacity: 0.65; cursor: default; box-shadow: none; }
-#progress { position: fixed; left: 0; bottom: 0; height: 2px; background: var(--muted); opacity: 0.35; }
+#progress { position: fixed; left: 0; bottom: 0; height: 2px; background: var(--muted); opacity: 0.45; }
 
 #panel {
-  position: absolute; inset: 0; overflow-y: auto; padding: 0 16px;
+  position: absolute; inset: 0; overflow-y: auto; padding: max(56px, 7vh) 16px 0; box-sizing: border-box;
   font-family: -apple-system, sans-serif; font-size: 15px;
 }
 #panel .wrap {
-  width: min(760px, 100%); margin: 0 auto; padding: 12vh 0 8vh;
-  display: flex; flex-direction: column; align-items: center; gap: 18px;
+  width: min(760px, 100%); margin: 0 auto; padding: 3vh 0 6vh;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
 }
-#panel .wrap.center { min-height: 100%; padding: 0; justify-content: center; box-sizing: border-box; }
-#panel .brand { font-family: "Iowan Old Style", Georgia, serif; font-weight: normal; font-size: 44px; margin: 0; }
+#panel .wrap.center { min-height: calc(100% - max(56px, 7vh)); padding: 0; justify-content: center; box-sizing: border-box; }
+#panel .brand { font-family: "Iowan Old Style", Georgia, serif; font-weight: normal; font-size: 38px; line-height: 1.1; margin: 0; }
 #panel form { display: flex; gap: 8px; width: 100%; }
 #panel input {
   flex: 1; font: inherit; font-size: 17px; padding: 10px 14px; border-radius: 8px;
-  border: 1px solid var(--rule); background: color-mix(in srgb, var(--bg) 70%, white); color: var(--fg); outline: none;
+  border: 1px solid var(--border); background: color-mix(in srgb, var(--fg) 5%, var(--bg)); color: var(--fg);
 }
-#panel input:focus { border-color: var(--muted); }
+#panel input::placeholder { color: var(--muted); opacity: 1; }
 #panel button {
   font: inherit; padding: 10px 18px; border-radius: 8px; border: 1px solid var(--fg);
   background: var(--fg); color: var(--bg); cursor: pointer;
 }
-#panel button.secondary { background: transparent; color: var(--fg); border-color: var(--rule); }
-#panel .row { display: flex; gap: 8px; }
-#panel .msg { color: #b0412e; max-width: 640px; text-align: center; margin: 0; }
+#panel button.secondary { background: transparent; color: var(--fg); border-color: var(--border); }
+#panel .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+#panel .msg { color: var(--err); max-width: 640px; text-align: center; margin: 0; }
 #panel .muted { color: var(--muted); margin: 0; text-align: center; }
 #panel .keys { font-size: 12.5px; line-height: 1.7; }
-#queue { width: 100%; margin-top: 18px; }
-#queue .head { display: flex; align-items: baseline; gap: 18px; border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
-#queue .tab { background: none; border: 0; padding: 0; color: var(--muted); font: inherit; cursor: pointer; }
+#queue { width: 100%; margin-top: 12px; }
+#queue .head { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--rule); padding-bottom: 8px; }
+#queue .tabs { display: flex; align-items: baseline; gap: 16px; }
+#queue .tab {
+  background: none; border: 0; padding: 4px 2px; border-radius: 4px;
+  color: var(--muted); font: inherit; cursor: pointer;
+}
 #queue .tab.on { color: var(--fg); font-weight: 600; }
 #queue .tools { margin-left: auto; display: flex; gap: 14px; }
-#queue .tools button { background: none; border: 0; padding: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; }
+#queue .tools button {
+  background: none; border: 0; padding: 4px 2px; border-radius: 4px;
+  color: var(--muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+#queue .tools button.confirm-danger { color: var(--err); font-weight: 600; }
 #queue ol { list-style: none; margin: 0; padding: 0; }
 #queue .doc {
   display: block; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--rule);
   border-radius: 0; padding: 12px 8px; color: var(--fg); cursor: pointer; font: inherit;
 }
-#queue .doc:hover, #queue .doc:focus { background: color-mix(in srgb, var(--fg) 6%, transparent); outline: none; }
+#queue .doc:hover, #queue .doc:focus-visible { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+#queue .doc:focus-visible { outline-offset: -2px; }
 #queue .doc .t { display: block; font-family: "Iowan Old Style", Georgia, serif; font-size: 18px; line-height: 1.3; }
 #queue .doc .m { display: block; margin-top: 3px; font-size: 12.5px; color: var(--muted); }
 #queue .note { color: var(--muted); padding: 14px 8px; margin: 0; }
 #queue .connect { display: flex; flex-direction: column; gap: 10px; padding: 14px 0; }
 #queue .connect p { margin: 0; color: var(--muted); }
 #queue .connect a { color: var(--link); }
-#queue .err { color: #b0412e; }
-kbd { font: 11px -apple-system, sans-serif; opacity: 0.7; margin-left: 4px; }
+#queue .err { color: var(--err); }
+kbd { font: 11px -apple-system, sans-serif; opacity: 0.85; margin-left: 4px; }
 .spinner {
   width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--rule); border-top-color: var(--muted);
   animation: spin 0.8s linear infinite;
@@ -118,51 +156,121 @@ kbd { font: 11px -apple-system, sans-serif; opacity: 0.7; margin-left: 4px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 #help {
-  position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: color-mix(in srgb, var(--bg) 85%, transparent); font: 14px/2 -apple-system, sans-serif;
+  position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  padding: 24px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+  font: 14px/1.9 -apple-system, sans-serif;
 }
-#help table td:first-child { text-align: right; padding-right: 18px; color: var(--muted); }
+#help .help-card {
+  max-width: min(560px, 100%); max-height: 85vh; overflow-y: auto;
+  padding: 20px 26px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--fg);
+  box-shadow: 0 12px 36px color-mix(in srgb, black 22%, transparent);
+}
+#help .help-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--rule);
+}
+#help h2 { font: 600 15px/1.3 -apple-system, sans-serif; margin: 0; }
+#help-close {
+  font: 13px/1.2 -apple-system, sans-serif; padding: 6px 10px; border-radius: 6px;
+  border: 1px solid var(--border); background: transparent; color: var(--fg); cursor: pointer;
+}
+#help table { border-collapse: collapse; width: 100%; }
+#help table th {
+  font-weight: 500; text-align: right; padding: 2px 18px 2px 0;
+  color: var(--muted); white-space: nowrap; vertical-align: top;
+}
+#help table td { padding: 2px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  .spinner { animation: none; }
+}
 </style>
 </head>
 <body>
-<div id="panel" hidden></div>
+<main id="main">
+  <div id="panel" hidden></div>
+  <div id="clip" hidden><article id="book"></article></div>
+</main>
 <footer id="reader-footer" hidden>
   <div class="line">
-    <span id="status"></span>
+    <span id="status" role="status" aria-live="polite" aria-atomic="true"></span>
+    <span id="reader-hint" aria-hidden="true"></span>
     <div id="finish" hidden>
       <button id="mark-read" type="button" aria-keyshortcuts="A" title="Archive in Readwise Reader and return to the queue">Mark as read <kbd aria-hidden="true">A</kbd></button>
       <button id="read-another" type="button" class="secondary">Back to queue</button>
     </div>
   </div>
-  <div id="archive-feedback" role="status"></div>
+  <div id="archive-feedback" role="status" aria-live="polite"></div>
 </footer>
-<div id="clip" hidden><div id="book"></div></div>
-<div id="progress"></div>
-<div id="help" hidden>
-  <table>
-    <tr><td>→ ↓ space · click right</td><td>Next spread</td></tr>
-    <tr><td>← ↑ ⇧space · click left</td><td>Previous spread</td></tr>
-    <tr><td>Home / End</td><td>First / last spread</td></tr>
-    <tr><td>+ / −</td><td>Text size</td></tr>
-    <tr><td>T</td><td>Theme (paper, sepia, dark)</td></tr>
-    <tr><td>F</td><td>Serif / sans</td></tr>
-    <tr><td>O</td><td>Open original in browser</td></tr>
-    <tr><td>A</td><td>Archive and return to queue (mark as read on the last spread)</td></tr>
-    <tr><td>⌘L / ⌘B / ⌘V</td><td>New URL / read browser tab / paste a URL</td></tr>
-    <tr><td>Esc</td><td>Leave full screen</td></tr>
-  </table>
+<div id="progress" aria-hidden="true"></div>
+<div id="help" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" tabindex="-1" hidden>
+  <div class="help-card">
+    <div class="help-head">
+      <h2>Keyboard shortcuts</h2>
+      <button id="help-close" type="button" aria-label="Close keyboard shortcuts">Close <kbd aria-hidden="true">Esc</kbd></button>
+    </div>
+    <table>
+      <tbody>
+        <tr><th scope="row">→ ↓ space · click right</th><td>Next spread</td></tr>
+        <tr><th scope="row">← ↑ ⇧space · click left</th><td>Previous spread</td></tr>
+        <tr><th scope="row">Home / End</th><td>First / last spread</td></tr>
+        <tr><th scope="row">+ / − / 0 · ⌘+ ⌘− ⌘0</th><td>Text size (0 resets)</td></tr>
+        <tr><th scope="row">T</th><td>Theme (paper, sepia, dark)</td></tr>
+        <tr><th scope="row">F</th><td>Serif / sans</td></tr>
+        <tr><th scope="row">O</th><td>Open original in browser</td></tr>
+        <tr><th scope="row">A</th><td>Archive and return to queue (mark as read on the last spread)</td></tr>
+        <tr><th scope="row">⌘L / ⌘B / ⌘V</th><td>New URL / read browser tab / paste a URL</td></tr>
+        <tr><th scope="row">?</th><td>Show or hide shortcuts</td></tr>
+        <tr><th scope="row">Esc</th><td>Close help / cancel / leave full screen</td></tr>
+      </tbody>
+    </table>
+  </div>
 </div>
 <script>
 /*__TWOUP_DATA__*/
 const D = window.TWOUP || { mode: "start", prefs: {} };
+const DEFAULT_FONT_SIZE = 20;
 const post = (type, extra = {}) => window.webkit?.messageHandlers?.twoup?.postMessage({ type, ...extra });
-const prefs = Object.assign({ fontSize: 20, theme: "paper", font: "serif" }, D.prefs || {});
+const darkMQ = window.matchMedia?.("(prefers-color-scheme: dark)");
+const systemTheme = () => (darkMQ?.matches ? "dark" : "paper");
+let userChoseTheme = typeof D.prefs?.theme === "string" && ["paper", "sepia", "dark"].includes(D.prefs.theme);
+const prefs = Object.assign({ fontSize: DEFAULT_FONT_SIZE, font: "serif" }, D.prefs || {});
+if (!userChoseTheme) prefs.theme = systemTheme();
+
 const root = document.documentElement;
-let page = 0, pages = 1, stride = 0, colStride = 0;
-let archiving = false;
 const $ = (id) => document.getElementById(id);
+const mainEl = $("main");
+const panelEl = $("panel");
+const clipEl = $("clip");
+const bookEl = $("book");
+const footerEl = $("reader-footer");
+const statusEl = $("status");
+const hintEl = $("reader-hint");
+const finishEl = $("finish");
+const markReadEl = $("mark-read");
+const readAnotherEl = $("read-another");
+const archiveFeedbackEl = $("archive-feedback");
+const progressEl = $("progress");
+const helpEl = $("help");
+const helpCloseEl = $("help-close");
+
+let page = 0, pages = 1, stride = 0;
+let archiving = false;
+let layoutRaf = 0;
+let flashTimer = null;
+let disconnectTimer = null;
+let lastFocusBeforeHelp = null;
+
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const host = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return u || ""; } };
+const normSpace = (s) => String(s || "").replace(/\s+/g, " ").trim();
+const isTextInput = (el) => Boolean(el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable));
 
 function applyPrefs() {
   root.dataset.theme = prefs.theme;
@@ -170,210 +278,477 @@ function applyPrefs() {
   root.style.setProperty("--fs", prefs.fontSize + "px");
 }
 function savePrefs() { applyPrefs(); post("prefs", { prefs }); }
+function cycleTheme() {
+  userChoseTheme = true;
+  prefs.theme = { paper: "sepia", sepia: "dark", dark: "paper" }[prefs.theme] || "paper";
+  savePrefs();
+}
+
+darkMQ?.addEventListener?.("change", () => {
+  if (!userChoseTheme) {
+    prefs.theme = systemTheme();
+    applyPrefs();
+  }
+});
 applyPrefs();
 
-// Paste a URL anywhere outside the text field to open it.
+window.twoupZoom = (delta) => {
+  if (delta === 0) prefs.fontSize = DEFAULT_FONT_SIZE;
+  else if (delta > 0) prefs.fontSize = Math.min(34, prefs.fontSize + 1);
+  else if (delta < 0) prefs.fontSize = Math.max(13, prefs.fontSize - 1);
+  else return;
+  savePrefs();
+  if (D.mode === "article") scheduleLayout();
+};
+
+window.flash = (message) => {
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => {
+    statusEl.textContent = D.mode === "article" ? `${page + 1} / ${pages}` : "";
+  }, 2400);
+};
+
+function openHelp() {
+  if (!helpEl.hidden) return;
+  lastFocusBeforeHelp = document.activeElement;
+  mainEl.inert = true;
+  footerEl.inert = true;
+  helpEl.hidden = false;
+  helpEl.focus();
+}
+
+function closeHelp() {
+  if (helpEl.hidden) return;
+  helpEl.hidden = true;
+  mainEl.inert = false;
+  footerEl.inert = false;
+  const target = lastFocusBeforeHelp;
+  lastFocusBeforeHelp = null;
+  if (target?.isConnected && typeof target.focus === "function") target.focus();
+}
+
+helpCloseEl.onclick = closeHelp;
+helpEl.addEventListener("click", (e) => {
+  if (e.target === helpEl) closeHelp();
+});
+
+// Paste a URL anywhere outside text fields (and while help is closed) to open it.
 document.addEventListener("paste", (e) => {
-  if (e.target.tagName === "INPUT") return;
+  if (isTextInput(e.target) || !helpEl.hidden) return;
   const text = (e.clipboardData.getData("text") || "").trim();
   if (/^https?:\/\/\S+$/i.test(text)) { e.preventDefault(); post("open", { url: text }); }
+});
+
+function scheduleLayout() {
+  if (layoutRaf || D.mode !== "article") return;
+  layoutRaf = requestAnimationFrame(() => {
+    layoutRaf = 0;
+    layout();
+  });
+}
+
+// Shared global keydown handler across all modes (start, loading, error, article).
+window.addEventListener("keydown", (e) => {
+  if (!helpEl.hidden) {
+    if (e.key === "Escape" || (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey)) {
+      e.preventDefault();
+      closeHelp();
+      return;
+    }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      helpCloseEl.focus();
+      return;
+    }
+    if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+      if (e.target === helpCloseEl && (e.key === "Enter" || e.key === " ")) return;
+      e.preventDefault();
+    }
+    return;
+  }
+
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  if (isTextInput(e.target)) {
+    if (e.key === "Escape") { e.preventDefault(); e.target.blur(); }
+    return;
+  }
+
+  if (e.key === "Escape") {
+    e.preventDefault();
+    if (D.mode === "loading") post("backToQueue");
+    else post("exitFullscreen");
+    return;
+  }
+  if (e.key === "?") { e.preventDefault(); openHelp(); return; }
+  if (e.key === "t" || e.key === "T") { e.preventDefault(); cycleTheme(); return; }
+
+  if (D.mode === "article") {
+    handleArticleKey(e);
+  } else if (D.mode === "start" || D.mode === "error") {
+    handleQueueKey(e);
+  }
 });
 
 if (D.mode === "article") initArticle(); else initPanel();
 
 function initPanel() {
-  const panel = $("panel");
-  panel.hidden = false;
+  panelEl.hidden = false;
   if (D.mode === "loading") {
-    panel.innerHTML = `<div class="wrap center"><div class="spinner"></div><p class="muted">Loading ${esc(host(D.url))}…</p></div>`;
+    panelEl.innerHTML = `<div class="wrap center"><div class="spinner" aria-hidden="true"></div><p class="muted" role="status">Loading ${esc(host(D.url))}…</p><p class="muted keys">Esc: cancel</p></div>`;
     return;
   }
   const isError = D.mode === "error";
-  panel.innerHTML = `<div class="wrap">
+  panelEl.innerHTML = `<div class="wrap">
     <h1 class="brand">TwoUp</h1>
-    ${D.message ? `<p class="${isError ? "msg" : ""}" role="status">${esc(D.message)}</p>` : ""}
-    <form id="f"><input id="u" type="text" placeholder="Paste an article URL" spellcheck="false" autocomplete="off"
-      value="${isError ? esc(D.url || "") : ""}"><button>Read</button></form>
+    ${D.message ? `<p class="${isError ? "msg" : ""}" role="${isError ? "alert" : "status"}">${esc(D.message)}</p>` : ""}
+    <form id="f"><label class="sr-only" for="u">Article URL</label><input id="u" type="text" inputmode="url" placeholder="Paste an article URL" spellcheck="false" autocomplete="off"
+      value="${isError ? esc(D.url || "") : ""}"><button type="submit">Read</button></form>
     <div class="row">
-      <button id="grab" class="secondary">Read front browser tab<kbd>⌘B</kbd></button>
-      ${isError && D.url ? `<button id="orig" class="secondary">Open in browser</button>` : ""}
+      <button id="grab" type="button" class="secondary">Read front browser tab<kbd aria-hidden="true">⌘B</kbd></button>
+      ${isError && D.url ? `<button id="orig" type="button" class="secondary">Open in browser</button>` : ""}
     </div>
-    <section id="queue"><p class="note">Loading your Reader queue…</p></section>
-    <p class="muted keys">↑ ↓ pick · return: read · R: refresh · → or space: next spread · ←: previous · A: archive · ?: help · Esc: leave full screen</p>
+    <section id="queue" aria-label="Readwise Reader queue"><p class="note">Loading your Reader queue…</p></section>
+    <p class="muted keys">↑ ↓ pick · return: read · R: refresh · T: theme · ?: shortcuts · Esc: leave full screen</p>
   </div>`;
   $("f").onsubmit = (e) => { e.preventDefault(); const v = $("u").value.trim(); if (v) post("open", { url: v }); };
   $("grab").onclick = () => post("grab");
   if ($("orig")) $("orig").onclick = () => post("original");
-  if (isError) { $("u").focus(); $("u").select(); }
-  bindQueueKeys();
+  if (D.focusUrl || isError) { $("u").focus(); $("u").select(); }
   post("queue", { location: prefs.queueLocation || "later" });
 }
 
 const LOCATIONS = [["new", "Inbox"], ["later", "Later"], ["shortlist", "Shortlist"]];
-let queueFocused = false;
+
+function selectQueueTab(loc) {
+  prefs.queueLocation = loc;
+  savePrefs();
+  post("queue", { location: loc });
+}
 
 window.updateQueue = (q) => {
+  clearTimeout(disconnectTimer);
   const location = prefs.queueLocation || "later";
   if (q.location && q.location !== location) return;
   const box = $("queue");
   if (!box) return;
   const focused = document.activeElement;
-  const focusedDocID = focused?.closest("#queue .doc")?.dataset.id;
+  const prevDocs = [...box.querySelectorAll(".doc")];
+  const focusedDoc = focused?.closest?.("#queue .doc");
+  const focusedDocID = focusedDoc?.dataset.id || null;
+  const focusedDocIdx = focusedDoc ? prevDocs.indexOf(focusedDoc) : -1;
+  const focusedTab = focused?.closest?.("#queue .tab") ? location : null;
+  const focusedToolID = focused?.closest?.("#queue .tools button")?.id || null;
+  const wasInsideQueue = Boolean(focused?.closest?.("#queue"));
+
   if (q.state === "needsToken") {
     box.innerHTML = `<div class="connect">
       <p>Connect Readwise Reader to read your queue here.</p>
-      <form id="tf"><input id="tok" type="password" placeholder="Readwise access token" autocomplete="off"><button>Connect</button></form>
+      <form id="tf"><label class="sr-only" for="tok">Readwise access token</label><input id="tok" type="password" placeholder="Readwise access token" autocomplete="off"><button type="submit">Connect</button></form>
       <p>Get a token at <a href="https://readwise.io/access_token">readwise.io/access_token</a>. TwoUp keeps it in your macOS Keychain.</p>
-      ${q.message ? `<p class="err">${esc(q.message)}</p>` : ""}
+      ${q.message ? `<p class="err" role="alert">${esc(q.message)}</p>` : ""}
     </div>`;
     $("tf").onsubmit = (e) => { e.preventDefault(); const v = $("tok").value.trim(); if (v) post("token", { value: v }); };
+    if (wasInsideQueue && !D.focusUrl) $("tok")?.focus();
     return;
   }
+
   const items = q.items || [];
-  const tabs = LOCATIONS.map(([key, label]) =>
-    `<button class="tab${key === location ? " on" : ""}" data-loc="${key}">${label}${key === location && q.state === "ready" ? ` ${items.length}` : ""}</button>`).join("");
+  const tabs = LOCATIONS.map(([key, label]) => {
+    const active = key === location;
+    const count = active && q.state === "ready" ? ` ${items.length}` : "";
+    return `<button type="button" class="tab${active ? " on" : ""}" role="tab" aria-selected="${active}" tabindex="${active ? "0" : "-1"}" data-loc="${key}">${label}${count}</button>`;
+  }).join("");
   const rows = items.map((d) => {
     const minutes = d.word_count ? `${Math.max(1, Math.round(d.word_count / 230))} min` : "";
     const progress = d.reading_progress > 0.02 ? `${Math.round(d.reading_progress * 100)}% read` : "";
     const meta = [d.site_name || host(d.source_url), d.author, minutes, progress].filter(Boolean).map(esc).join(" · ");
-    return `<li><button class="doc" data-id="${esc(d.id)}"><span class="t">${esc(d.title || d.source_url || "Untitled")}</span><span class="m">${meta}</span></button></li>`;
+    return `<li><button type="button" class="doc" data-id="${esc(d.id)}"><span class="t">${esc(d.title || d.source_url || "Untitled")}</span><span class="m">${meta}</span></button></li>`;
   }).join("");
   let note = "";
   if (q.state === "loading") note = `<p class="note">Loading…</p>`;
-  else if (q.state === "error") note = `<p class="note err">${esc(q.message)}</p>`;
+  else if (q.state === "error") note = `<p class="note err" role="alert">${esc(q.message)}</p>`;
   else if (!items.length) note = `<p class="note">Nothing here.</p>`;
-  box.innerHTML = `<div class="head">${tabs}<div class="tools"><button id="refresh">Refresh</button><button id="disconnect">Disconnect</button></div></div>${note}<ol>${rows}</ol>`;
-  box.querySelectorAll(".tab").forEach((b) => b.onclick = () => {
-    prefs.queueLocation = b.dataset.loc;
-    savePrefs();
-    post("queue", { location: b.dataset.loc });
+  box.innerHTML = `<div class="head"><div class="tabs" role="tablist" aria-label="Queue sections">${tabs}</div><div class="tools"><button id="refresh" type="button">Refresh</button><button id="disconnect" type="button">Disconnect</button></div></div>${note}<ol role="list">${rows}</ol>`;
+
+  box.querySelectorAll(".tab").forEach((b) => {
+    b.onclick = () => selectQueueTab(b.dataset.loc);
   });
-  box.querySelectorAll(".doc").forEach((b) => b.onclick = () => post("openDoc", { id: b.dataset.id }));
+  box.querySelectorAll(".doc").forEach((b) => {
+    b.onclick = () => post("openDoc", { id: b.dataset.id });
+  });
   $("refresh").onclick = () => post("queue", { location, force: true });
-  $("disconnect").onclick = () => post("disconnect");
+
+  const disconnectBtn = $("disconnect");
+  let disconnectArmed = false;
+  const resetDisconnect = () => {
+    disconnectArmed = false;
+    clearTimeout(disconnectTimer);
+    disconnectBtn.textContent = "Disconnect";
+    disconnectBtn.classList.remove("confirm-danger");
+  };
+  disconnectBtn.onclick = () => {
+    if (!disconnectArmed) {
+      disconnectArmed = true;
+      disconnectBtn.textContent = "Confirm disconnect?";
+      disconnectBtn.classList.add("confirm-danger");
+      clearTimeout(disconnectTimer);
+      disconnectTimer = setTimeout(resetDisconnect, 4000);
+    } else {
+      clearTimeout(disconnectTimer);
+      post("disconnect");
+    }
+  };
+  disconnectBtn.onblur = () => { if (disconnectArmed) resetDisconnect(); };
+
   const docs = [...box.querySelectorAll(".doc")];
-  if (docs.length && (focusedDocID || (!queueFocused && focused?.tagName !== "INPUT"))) {
-    const next = docs.find((doc) => doc.dataset.id === focusedDocID) ?? docs[0];
-    next.focus();
-    queueFocused = true;
+  if (focusedTab) {
+    [...box.querySelectorAll(".tab")].find((t) => t.dataset.loc === focusedTab)?.focus();
+  } else if (focusedToolID) {
+    $(focusedToolID)?.focus();
+  } else if (focusedDocID) {
+    const next = docs.find((doc) => doc.dataset.id === focusedDocID)
+      ?? docs[Math.min(focusedDocIdx, docs.length - 1)]
+      ?? docs[0];
+    if (next) next.focus();
+    else box.querySelector(".tab.on")?.focus();
+  } else if (docs.length && !D.focusUrl && D.mode !== "error" && (!focused || focused === document.body || focused === root)) {
+    docs[0].focus();
   }
 };
 
-function bindQueueKeys() {
-  window.addEventListener("keydown", (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey || e.target.tagName === "INPUT") return;
-    const docs = [...document.querySelectorAll("#queue .doc")];
-    const i = docs.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" || e.key === "j") { docs[Math.min(docs.length - 1, i + 1)]?.focus(); e.preventDefault(); }
-    else if (e.key === "ArrowUp" || e.key === "k") { docs[Math.max(0, i - 1)]?.focus(); e.preventDefault(); }
-    else if (e.key === "r" || e.key === "R") { post("queue", { location: prefs.queueLocation || "later", force: true }); }
-  });
+function handleQueueKey(e) {
+  const activeTab = e.target?.closest?.("#queue .tab");
+  if (activeTab && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
+    const tabs = [...document.querySelectorAll("#queue .tab")];
+    const idx = tabs.indexOf(activeTab);
+    if (tabs.length && idx >= 0) {
+      let nextIdx = idx;
+      if (e.key === "ArrowRight") nextIdx = (idx + 1) % tabs.length;
+      else if (e.key === "ArrowLeft") nextIdx = (idx - 1 + tabs.length) % tabs.length;
+      else if (e.key === "Home") nextIdx = 0;
+      else if (e.key === "End") nextIdx = tabs.length - 1;
+      e.preventDefault();
+      tabs[nextIdx].focus();
+      if (nextIdx !== idx) selectQueueTab(tabs[nextIdx].dataset.loc);
+      return;
+    }
+  }
+
+  const docs = [...document.querySelectorAll("#queue .doc")];
+  const i = docs.indexOf(document.activeElement);
+  if (e.key === "ArrowDown" || e.key === "j") {
+    if (docs.length > 0) {
+      const next = i < 0 ? 0 : Math.min(docs.length - 1, i + 1);
+      docs[next].focus();
+      e.preventDefault();
+    }
+  } else if (e.key === "ArrowUp" || e.key === "k") {
+    if (docs.length > 0) {
+      const prev = i < 0 ? 0 : Math.max(0, i - 1);
+      docs[prev].focus();
+      e.preventDefault();
+    }
+  } else if (e.key === "r" || e.key === "R") {
+    e.preventDefault();
+    post("queue", { location: prefs.queueLocation || "later", force: true });
+  }
+}
+
+const STRIP_TAGS = "script,style,link,meta,base,noscript,iframe,object,embed,form,input,button,select,textarea,frame,frameset,applet,portal,template,foreignobject,animate,animatetransform,animatemotion,set,use,feimage,handler,listener";
+const CTRL_CHARS = /[\u0000-\u001f\u007f]+/g;
+const SAFE_HREF = /^(?:https?:|mailto:|#)/i;
+const SAFE_SRC = /^(?:https?:|data:image\/(?:png|jpe?g|gif|webp|avif);)/i;
+
+function normalizeUrlAttr(raw, allowlist, allowFragment) {
+  const cleaned = String(raw || "").replace(CTRL_CHARS, "").trim();
+  if (!cleaned) return null;
+  if (cleaned.startsWith("#")) return allowFragment ? cleaned : null;
+  if (allowlist.test(cleaned)) return cleaned;
+  if (!/^[^/?#]*:/.test(cleaned) && D.url) {
+    try {
+      const resolved = new URL(cleaned, D.url).href;
+      if (/^https?:/i.test(resolved)) return resolved;
+    } catch {}
+  }
+  return null;
+}
+
+function sanitizeSrcset(raw) {
+  const parts = String(raw || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const kept = [];
+  for (const part of parts) {
+    const tokens = part.split(/\s+/);
+    const url = normalizeUrlAttr(tokens[0], /^https?:/i, false);
+    if (!url) return null;
+    kept.push(tokens.length > 1 ? `${url} ${tokens.slice(1).join(" ")}` : url);
+  }
+  return kept.join(", ");
 }
 
 function sanitize(html) {
   const t = document.createElement("template");
   t.innerHTML = html;
-  t.content.querySelectorAll("script,style,link,meta,iframe,object,embed,form,input,button,select,textarea").forEach((n) => n.remove());
+  t.content.querySelectorAll(STRIP_TAGS).forEach((n) => n.remove());
   t.content.querySelectorAll("*").forEach((el) => {
+    const isForeign = el.namespaceURI !== "http://www.w3.org/1999/xhtml";
     for (const a of [...el.attributes]) {
-      if (/^on/i.test(a.name) || a.name === "style" || (/^(href|src)$/i.test(a.name) && /^\s*javascript:/i.test(a.value))) {
+      const name = a.name.toLowerCase();
+      if (
+        /^on/.test(name) ||
+        name === "id" ||
+        name === "style" ||
+        name === "srcdoc" ||
+        name === "formaction" ||
+        name === "action" ||
+        name === "ping" ||
+        name === "xlink:href"
+      ) {
         el.removeAttribute(a.name);
+        continue;
+      }
+      if (isForeign && (name === "href" || name === "src")) {
+        el.removeAttribute(a.name);
+        continue;
+      }
+      if (name === "href") {
+        const safe = normalizeUrlAttr(a.value, SAFE_HREF, true);
+        if (safe) el.setAttribute("href", safe);
+        else el.removeAttribute(a.name);
+      } else if (name === "src" || name === "poster") {
+        const safe = normalizeUrlAttr(a.value, SAFE_SRC, false);
+        if (safe) el.setAttribute(name, safe);
+        else el.removeAttribute(a.name);
+      } else if (name === "srcset") {
+        const safe = sanitizeSrcset(a.value);
+        if (safe) el.setAttribute("srcset", safe);
+        else el.removeAttribute(a.name);
       }
     }
   });
   return t.content;
 }
 
+function removeBrokenImg(img) {
+  const target = img.closest("picture") || img;
+  const fig = target.closest("figure");
+  target.remove();
+  if (fig && !fig.children.length && !fig.textContent.trim()) fig.remove();
+  scheduleLayout();
+}
 
 function initArticle() {
   const a = D.article;
-  const clip = $("clip"), book = $("book");
-  clip.hidden = false;
-  $("reader-footer").hidden = false;
+  clipEl.hidden = false;
+  footerEl.hidden = false;
   document.title = a.title || host(D.url);
   if (a.lang) root.lang = a.lang;
+  bookEl.dir = D.dir || a.dir || "auto";
 
   const meta = [a.byline, a.site || host(D.url)].filter(Boolean).map(esc).join(" · ");
-  book.innerHTML = `<h1 class="title">${esc(a.title)}</h1>${meta ? `<div class="meta">${meta}</div>` : ""}`;
+  bookEl.innerHTML = `<h1 class="title">${esc(a.title)}</h1>${meta ? `<div class="meta">${meta}</div>` : ""}`;
   const content = sanitize(a.content);
   const firstHead = content.querySelector("h1, h2");
-  if (firstHead && firstHead.textContent.trim() === (a.title || "").trim()) firstHead.remove();
-  book.appendChild(content);
-  book.insertAdjacentHTML("beforeend", '<p class="end" aria-hidden="true">❧</p>');
+  if (firstHead && normSpace(firstHead.textContent) === normSpace(a.title)) firstHead.remove();
+  bookEl.appendChild(content);
+  bookEl.insertAdjacentHTML("beforeend", '<p class="end" id="twoup-end" aria-hidden="true">❧</p>');
 
-  const markRead = $("mark-read"), readAnother = $("read-another");
-  markRead.hidden = !D.docId;
-  markRead.onclick = () => archive(true);
+  hintEl.textContent = D.docId ? "· ? keys · A archive" : "· ? keys";
+  markReadEl.hidden = !D.docId;
+  markReadEl.onclick = () => archive(true);
   if (!D.docId) {
-    readAnother.textContent = "Choose another article";
-    readAnother.classList.remove("secondary");
+    readAnotherEl.textContent = "Choose another article";
+    readAnotherEl.classList.remove("secondary");
   }
-  readAnother.onclick = () => { if ($("help").hidden) post("backToQueue"); };
+  readAnotherEl.onclick = () => { if (helpEl.hidden) post("backToQueue"); };
 
-  let relayoutTimer;
-  const relayoutSoon = () => { clearTimeout(relayoutTimer); relayoutTimer = setTimeout(layout, 120); };
-  book.querySelectorAll("img").forEach((img) => {
+  bookEl.querySelectorAll("img").forEach((img) => {
     img.removeAttribute("loading");
-    if (!img.complete) img.addEventListener("load", relayoutSoon);
-    img.addEventListener("error", () => { (img.closest("figure, picture") || img).remove(); relayoutSoon(); });
+    if (img.complete) {
+      if (img.naturalWidth === 0) removeBrokenImg(img);
+    } else {
+      img.addEventListener("load", scheduleLayout, { once: true });
+      img.addEventListener("error", () => removeBrokenImg(img), { once: true });
+    }
   });
-  book.addEventListener("click", (e) => {
+  bookEl.addEventListener("click", (e) => {
     const link = e.target.closest("a[href^='#']");
     if (link) e.preventDefault();
   });
-  window.addEventListener("resize", layout);
-  document.fonts?.ready.then(layout);
-  window.addEventListener("load", layout);
+  window.addEventListener("resize", scheduleLayout);
+  document.fonts?.ready.then(scheduleLayout);
+  window.addEventListener("load", scheduleLayout);
   layout();
   bindArticleInput();
 }
 
 function layout() {
-  const clip = $("clip"), book = $("book");
+  const endMarker = $("twoup-end") || bookEl.lastElementChild;
+  if (!endMarker) return;
   const frac = pages > 1 ? page / (pages - 1) : 0;
   const vw = window.innerWidth, vh = window.innerHeight;
   const gap = Math.max(40, Math.round(vw * 0.045));
-  const colW = Math.min(Math.floor((vw * 0.9 - gap) / 2), Math.round(prefs.fontSize * 34));
-  const W = colW * 2 + gap;
-  const top = Math.round(vh * 0.07);
-  const H = vh - top - Math.max(72, Math.round(vh * 0.08));
-  Object.assign(clip.style, { width: W + "px", height: H + "px", top: top + "px", left: Math.floor((vw - W) / 2) + "px" });
-  book.style.width = W + "px";
-  book.style.columnGap = gap + "px";
-  root.style.setProperty("--bookh", H + "px");
-  stride = W + gap;
-  colStride = colW + gap;
+  const twoUpColW = Math.min(Math.floor((vw * 0.9 - gap) / 2), Math.round(prefs.fontSize * 31));
+  const singleCol = vw < 900 || twoUpColW < prefs.fontSize * 20;
+  const cols = singleCol ? 1 : 2;
+  const colW = singleCol
+    ? Math.max(240, Math.min(Math.floor(vw * 0.9), Math.round(prefs.fontSize * 34)))
+    : twoUpColW;
+  const W = singleCol ? colW : colW * 2 + gap;
+  const top = Math.max(44, Math.round(vh * 0.07));
+  const bottom = Math.max(72, Math.round(vh * 0.08));
+  const H = Math.max(160, vh - top - bottom);
 
-  const endLeft = book.lastElementChild.getBoundingClientRect().left - book.getBoundingClientRect().left;
-  const columns = Math.floor(endLeft / colStride + 0.01) + 1;
-  pages = Math.max(1, Math.ceil(columns / 2));
+  Object.assign(clipEl.style, { width: W + "px", height: H + "px", top: top + "px", left: Math.floor((vw - W) / 2) + "px" });
+  bookEl.style.width = W + "px";
+  bookEl.style.columnCount = String(cols);
+  bookEl.style.columnGap = gap + "px";
+  bookEl.classList.toggle("ragged", colW < prefs.fontSize * 20);
+  root.style.setProperty("--bookh", H + "px");
+
+  stride = W + gap;
+  const colStride = colW + gap;
+  const isRTL = getComputedStyle(bookEl).direction === "rtl";
+  const bookRect = bookEl.getBoundingClientRect();
+  const endRect = endMarker.getBoundingClientRect();
+  const endOffset = isRTL ? (bookRect.right - endRect.right) : (endRect.left - bookRect.left);
+  const columns = Math.max(1, Math.floor(Math.max(0, endOffset) / colStride + 0.01) + 1);
+  pages = Math.max(1, Math.ceil(columns / cols));
   page = Math.round(frac * (pages - 1));
   show();
 }
 
 function show() {
-  $("book").style.transform = `translateX(${-page * stride}px)`;
-  $("status").textContent = `${page + 1} / ${pages}`;
-  $("finish").hidden = page !== pages - 1;
-  $("progress").style.width = (pages > 1 ? (page / (pages - 1)) * 100 : 100) + "%";
+  const dirSign = getComputedStyle(bookEl).direction === "rtl" ? 1 : -1;
+  bookEl.style.transform = `translateX(${dirSign * page * stride}px)`;
+  statusEl.textContent = `${page + 1} / ${pages}`;
+  const isLast = page === pages - 1;
+  finishEl.hidden = !isLast;
+  hintEl.hidden = isLast;
+  progressEl.style.width = (pages > 1 ? (page / (pages - 1)) * 100 : 100) + "%";
 }
 
-function setArchiveFeedback(message) {
-  $("mark-read").setAttribute("aria-disabled", String(archiving));
-  $("archive-feedback").textContent = message;
+function setArchiveFeedback(message, isErr = false) {
+  markReadEl.setAttribute("aria-disabled", String(archiving));
+  archiveFeedbackEl.setAttribute("role", isErr ? "alert" : "status");
+  archiveFeedbackEl.classList.toggle("err", isErr);
+  archiveFeedbackEl.textContent = message;
 }
 
 function archive(markRead) {
-  if (!D.docId || archiving || !$("help").hidden) return;
+  if (!D.docId || archiving || !helpEl.hidden) return;
   archiving = true;
-  setArchiveFeedback("Saving to Readwise…");
+  setArchiveFeedback("Saving to Readwise…", false);
   post("archive", { id: D.docId, markRead });
 }
 
 window.archiveFailed = (id, message) => {
   if (D.docId !== id) return;
   archiving = false;
-  setArchiveFeedback(message);
+  setArchiveFeedback(message, true);
 };
 
 function go(delta) {
@@ -381,46 +756,54 @@ function go(delta) {
   if (next !== page) { page = next; show(); }
 }
 
+function handleArticleKey(e) {
+  let handled = true;
+  switch (e.key) {
+    case "ArrowRight": case "ArrowDown": case "PageDown": case "j": case "l": go(1); break;
+    case "ArrowLeft": case "ArrowUp": case "PageUp": case "k": case "h": go(-1); break;
+    case " ":
+      if (e.target instanceof HTMLButtonElement) handled = false;
+      else go(e.shiftKey ? -1 : 1);
+      break;
+    case "Home": case "g": page = 0; show(); break;
+    case "End": case "G": page = pages - 1; show(); break;
+    case "=": case "+": window.twoupZoom(1); break;
+    case "-": case "_": window.twoupZoom(-1); break;
+    case "0": window.twoupZoom(0); break;
+    case "f": case "F": prefs.font = prefs.font === "serif" ? "sans" : "serif"; savePrefs(); scheduleLayout(); break;
+    case "o": case "O": post("original"); break;
+    case "a": case "A":
+      if (D.docId) { if (!e.repeat) archive(page === pages - 1); }
+      else handled = false;
+      break;
+    default: handled = false;
+  }
+  if (handled) e.preventDefault();
+}
+
 function bindArticleInput() {
-  window.addEventListener("keydown", (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    const help = $("help");
-    let handled = true;
-    switch (e.key) {
-      case "ArrowRight": case "ArrowDown": case "PageDown": case "j": case "l": go(1); break;
-      case "ArrowLeft": case "ArrowUp": case "PageUp": case "k": case "h": go(-1); break;
-      case " ":
-        if (e.target instanceof HTMLButtonElement) handled = false;
-        else go(e.shiftKey ? -1 : 1);
-        break;
-      case "Home": case "g": page = 0; show(); break;
-      case "End": case "G": page = pages - 1; show(); break;
-      case "=": case "+": prefs.fontSize = Math.min(34, prefs.fontSize + 1); savePrefs(); layout(); break;
-      case "-": case "_": prefs.fontSize = Math.max(13, prefs.fontSize - 1); savePrefs(); layout(); break;
-      case "t": case "T": prefs.theme = { paper: "sepia", sepia: "dark", dark: "paper" }[prefs.theme] || "paper"; savePrefs(); break;
-      case "f": case "F": prefs.font = prefs.font === "serif" ? "sans" : "serif"; savePrefs(); layout(); break;
-      case "o": case "O": post("original"); break;
-      case "a": case "A":
-        if (D.docId) { if (!e.repeat) archive(page === pages - 1); }
-        else handled = false;
-        break;
-      case "?": help.hidden = !help.hidden; break;
-      case "Escape": if (!help.hidden) help.hidden = true; else post("exitFullscreen"); break;
-      default: handled = false;
-    }
-    if (handled) e.preventDefault();
+  // Track selection on mousedown so click-to-deselect text never turns a page.
+  let hadSelectionOnMouseDown = false;
+  document.addEventListener("mousedown", () => {
+    hadSelectionOnMouseDown = Boolean(String(window.getSelection()).trim());
   });
 
   // Click left half: back. Right half: forward. Leave controls and text selection alone.
   document.addEventListener("click", (e) => {
-    if (e.target.closest("a, button") || String(window.getSelection())) return;
-    if (!$("help").hidden) { $("help").hidden = true; return; }
+    const wasSelected = hadSelectionOnMouseDown;
+    hadSelectionOnMouseDown = false;
+    if (!helpEl.hidden) return;
+    if (wasSelected || String(window.getSelection()).trim()) return;
+    if (e.target.closest("a, button, #reader-footer, #help")) return;
     go(e.clientX < window.innerWidth / 2 ? -1 : 1);
   });
 
-  // Trackpad/wheel: one page per gesture; the gesture ends when events pause.
+  // Trackpad/wheel: one page per gesture; ignore pinch-zoom (ctrlKey) and modal help.
   let acc = 0, locked = false, quietTimer;
   window.addEventListener("wheel", (e) => {
+    if (e.ctrlKey || !helpEl.hidden) return;
+    const tbl = e.target.closest?.("#book table");
+    if (tbl && tbl.scrollWidth > tbl.clientWidth && Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
     e.preventDefault();
     clearTimeout(quietTimer);
     quietTimer = setTimeout(() => { locked = false; acc = 0; }, 180);
@@ -429,7 +812,7 @@ function bindArticleInput() {
     if (Math.abs(acc) > 40) { go(acc > 0 ? 1 : -1); locked = true; }
   }, { passive: false });
 
-  let idleTimer;
+  let idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
   document.addEventListener("mousemove", () => {
     document.body.classList.remove("idle");
     clearTimeout(idleTimer);

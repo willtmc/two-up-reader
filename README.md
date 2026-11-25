@@ -4,7 +4,7 @@ Read any web article full screen on a Mac as a two-page spread, like an open boo
 
 ![TwoUp showing a Wikipedia article as a two-page spread](docs/screenshot.png)
 
-TwoUp pulls the article text out of a page (with Mozilla's [Readability](https://github.com/mozilla/readability)), sets it in two columns, and turns pages a spread at a time. It can also read your [Readwise Reader](https://readwise.io/read) queue.
+TwoUp pulls the article text out of a page (with Mozilla's [Readability](https://github.com/mozilla/readability)), sets it in two columns (or a single centered column on narrow windows), and turns pages a spread at a time. It can also read your [Readwise Reader](https://readwise.io/read) queue.
 
 ## Install
 
@@ -16,7 +16,7 @@ cd two-up-reader
 ./build.sh
 ```
 
-`build.sh` compiles the app and installs it to `~/Applications/TwoUp.app`.
+`build.sh` compiles the app and installs it to `~/Applications/TwoUp.app`. Pass `./build.sh --build-only` to build `build/TwoUp.app` without installing.
 
 ## Use
 
@@ -31,13 +31,14 @@ On the last spread of a Reader article, **Mark as read** saves 100% reading prog
 | → ↓ space, click right half, swipe | Next spread |
 | ← ↑ ⇧space, click left half | Previous spread |
 | Home / End | First / last spread |
-| + / − | Text size |
-| T | Theme: paper, sepia, dark |
+| + / − / 0 (or ⌘+ / ⌘− / ⌘0) | Increase, decrease, or reset text size |
+| T | Theme: paper, sepia, dark (follows macOS appearance by default) |
 | F | Serif or sans |
 | O | Open the original page in your browser |
 | A | Archive in Readwise Reader and return to the queue. On the last spread, also mark as read. |
-| ? | Show keys |
-| Esc | Leave full screen |
+| ⌘L / ⌘B / ⌘V | New URL / read front browser tab / paste a URL |
+| ? | Show or hide keyboard shortcuts |
+| Esc | Close help, cancel loading, or leave full screen |
 
 ### Logged-in and paywalled pages
 
